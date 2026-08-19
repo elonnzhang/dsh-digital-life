@@ -140,6 +140,8 @@ You can start one in either way:
 
 The standalone session has no Workspace (`workspaceId`/`cwd`), receives a record-specific system prompt through Host binding, and is forced to the **read-only file sandbox**. The opening message is brief and does not repeat the full persona. File-reading and consultation are available, but file modifications are blocked.
 
+Inside a standalone digital-life session, mentioning another record as `@<id>` requires `consult_digital_life`; the current digital life must not imitate or answer for that record. Mentioning the current record's own ID is answered directly without a self-consultation.
+
 ### 5. Update the plugin
 
 After publishing a new GitHub revision, build the plugin before pushing. Then update it from the Harness checkout:
@@ -162,4 +164,4 @@ Consultation tools add their schemas to the main agent's model request. A single
 
 ## Known Limitations and Deferred Work
 
-`@<id>` is model-visible text that helps the agent choose `consult_digital_life`; it is not an automatic command. The current public sidebar has no additive Slot above the workspace browser, so Chat Panel uses the supported footer action Slot. Standalone digital-life sessions use the `digital-life-mode` Agent preset when a record is selected; per-record model selection is not yet applied during Session creation.
+In a regular Chat, `@<id>` is model-visible text that helps the agent choose `consult_digital_life`; it is not an automatic command. In a standalone digital-life session, the durable system prompt requires other-record mentions to use the consultation tool while self-mentions are answered directly. The current public sidebar has no additive Slot above the workspace browser, so Chat Panel uses the supported footer action Slot. Standalone digital-life sessions use the `digital-life-mode` Agent preset when a record is selected; per-record model selection is not yet applied during Session creation.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { promptFor, validateSettings } from '../src/index.js'
+import { independentSystemPromptFor, promptFor, validateSettings } from '../src/index.js'
 import type { DigitalLifeRecord } from '../src/types.js'
 
 const record: DigitalLifeRecord = {
@@ -38,6 +38,15 @@ describe('digital-life configuration', () => {
     expect(prompt).toMatchObject({ type: 'text' })
     expect(prompt.type === 'text' && prompt.text).toContain('创业导师')
     expect(prompt.type === 'text' && prompt.text).toContain('下一步做什么？')
+  })
+
+  it('routes mentions of other digital lives through consultation tools', () => {
+    const prompt = independentSystemPromptFor(record)
+
+    expect(prompt).toContain('@<数字生命ID>')
+    expect(prompt).toContain('必须调用 consult_digital_life')
+    expect(prompt).toContain(`@${record.id}`)
+    expect(prompt).toContain('调用 consult_digital_life_category')
   })
 })
 

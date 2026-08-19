@@ -137,6 +137,8 @@ $DSH_HOME/settings.yaml
 
 独立会话不附加 Workspace，不传 `workspaceId` 或 `cwd`，并通过 Host binding 注入该记录专属的 system prompt。数字生命会话强制使用**只读文件沙箱**：可以读取文件和进行咨询，但不能修改文件。开场消息是简短提示，不会重复完整人格设定。
 
+在数字生命独立会话中，使用 `@<id>` 点名其他记录时必须调用 `consult_digital_life`，当前数字生命不得模拟或代替对方回答；点名当前数字生命自身的 ID 时直接回答，不进行自我咨询。
+
 ### 5. 更新插件
 
 发布新的 GitHub 版本前，先在插件仓库构建并推送；然后在 Harness checkout 中更新：
@@ -169,4 +171,4 @@ pnpm dsh plugin --profile web add https://github.com/OWNER/dsh-digital-life.git
 
 ## 已知限制与后续工作
 
-`@<id>` 是帮助 Agent 选择 `consult_digital_life` 的模型可见文本，不是自动命令。当前公共 Sidebar 没有 Workspace 浏览器上方的 additive Slot，因此 Chat Panel 使用受支持的 footer action Slot。选择具体记录时，独立会话使用 `digital-life-mode` Agent preset；每条记录的独立模型配置尚未应用到 Session 创建过程。
+在普通 Chat 中，`@<id>` 是帮助 Agent 选择 `consult_digital_life` 的模型可见文本，不是自动命令；在数字生命独立会话中，持久化 system prompt 要求点名其他记录时必须使用咨询工具，点名自身时直接回答。当前公共 Sidebar 没有 Workspace 浏览器上方的 additive Slot，因此 Chat Panel 使用受支持的 footer action Slot。选择具体记录时，独立会话使用 `digital-life-mode` Agent preset；每条记录的独立模型配置尚未应用到 Session 创建过程。
