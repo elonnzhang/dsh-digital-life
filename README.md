@@ -16,6 +16,20 @@ English | [中文](README.zh.md)
 - Creates conversations without a Workspace and starts standalone conversations initialized with a selected digital-life persona.
 - Provides a composite homepage selector for the `数字生命模式` Agent preset and a required digital-life choice.
 
+## Demo
+
+### Homepage selector
+
+<img src="pics/home.png" alt="Digital-life selector on the Harness homepage" width="960">
+
+### Chat Panel
+
+<img src="pics/chat.png" alt="Digital-life Chat Panel" width="960">
+
+### Settings
+
+<img src="pics/setting.png" alt="Digital-life settings" width="960">
+
 ## Record fields
 
 Each record has an `id`, `name`, `description`, primary-domain `category`, composable `tags[]`, `agent`, `persona`, and `enabled` flag. `agent` is the only runtime identity source. When no Agent file is supplied, saving a record writes `persona` to the managed `<id>/agents/<id>.md` file and stores that relative path in `agent`; when an Agent file is supplied, its Markdown body is authoritative and `persona` is ignored. New records using the `custom` category should set `customCategory`; older records without it fall back to the display name. `toolFilter` and `model` are optional. The Host validates the settings document and creates one-shot consultations with the configured subagent provider. See [`docs/think-tank-agent-team.md`](docs/think-tank-agent-team.md) for the proposed Think Tank agent-team design.

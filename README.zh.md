@@ -15,6 +15,20 @@
 - 创建不附加 Workspace 的独立会话，并使用所选数字生命初始化会话。
 - 在首页提供组合选择器：选择 `数字生命模式` Agent preset 后，再选择具体数字生命。
 
+## 演示
+
+### 首页选择器
+
+<img src="pics/home.png" alt="Harness 首页中的数字生命选择器" width="960">
+
+### Chat Panel
+
+<img src="pics/chat.png" alt="数字生命 Chat Panel" width="960">
+
+### 设置页面
+
+<img src="pics/setting.png" alt="数字生命设置页面" width="960">
+
 ## 数字生命记录字段
 
 每条记录包含 `id`、`name`、`description`、主领域 `category`、能力标签 `tags[]`、`agent`、`persona` 和 `enabled`。`agent` 是运行时唯一的人格来源：未填写 Agent 文件时，保存会将 `persona` 写入托管的 `<id>/agents/<id>.md`，并把相对路径保存到 `agent`；填写 Agent 文件后，以该 Markdown 正文为准，忽略 `persona`。新建 `custom` 主领域的记录时建议填写 `customCategory`；旧配置缺少该字段时会回退使用数字生命名称。`toolFilter` 与 `model` 为可选字段。Host 会校验设置文档，并使用配置的子代理 Provider 创建一次性咨询。智囊团设计见 [`docs/think-tank-agent-team.md`](docs/think-tank-agent-team.md)。
