@@ -1,0 +1,5 @@
+node_modules
+.DS_Store
+
+# Keep the source repository independent from the workspace's nested checkout.
+dsh-digital-life/
