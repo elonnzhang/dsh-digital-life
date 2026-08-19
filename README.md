@@ -95,6 +95,8 @@ For Client HMR, keep `pnpm run dev:web` running in the Harness checkout and run 
 
 Open **Settings → 数字生命** after the Web Profile starts. Add or edit a record with:
 
+The plugin UI follows the Harness locale and provides complete English and Simplified Chinese dictionaries. Switching the application language updates Settings, Chat Panel, and conversation selectors without translating user-authored names, descriptions, or Persona content.
+
 - **ID**: lowercase letters, numbers, and hyphens, for example `startup-mentor`
 - **Name**: the display name, for example `创业导师`
 - **Description**: a short responsibility summary

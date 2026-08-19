@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
+import type { PropsRuntime, TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
 import type {} from "@deepseek-ai/dsh-client-ui-conversation/client";
 import {
   IconAgentPresetOutline16,
@@ -8,6 +8,7 @@ import {
 } from "@deepseek-ai/dsh-client-ui-primitives";
 import type { DigitalLifeRecord } from "../types.js";
 import css from "./AgentPresetSelector.module.css";
+import { categoryLabel } from "./locales.js";
 
 /** Display metadata for one selectable Agent preset. */
 export interface AgentPresetOption {
@@ -22,6 +23,7 @@ export interface AgentPresetSelectorInjected {
   select: (id: string) => Promise<void>;
   records: () => readonly DigitalLifeRecord[];
   selectLife: (id: string) => Promise<void>;
+  t: TranslateNS<"digital-life">;
 }
 
 export type AgentPresetSelectorProps =
@@ -33,6 +35,7 @@ export function AgentPresetSelector({
   select,
   records,
   selectLife,
+  t,
 }: AgentPresetSelectorProps) {
   const [options, setOptions] = useState<AgentPresetOption[]>([]);
   const [current, setCurrent] = useState("");
@@ -67,7 +70,7 @@ export function AgentPresetSelector({
             <span className={css.item}>
               <span className={css.itemName}>{option.name}</span>
               <span className={css.itemDesc}>
-                {option.description ?? "暂无说明"}
+                {option.description ?? t("presetNoDescription")}
               </span>
             </span>
           ),
@@ -114,7 +117,7 @@ export function AgentPresetSelector({
               <span className={css.item}>
                 <span className={css.itemName}>{record.name}</span>
                 <span className={css.itemDesc}>
-                  {record.description} · {record.category === "custom" ? record.customCategory : record.category}
+                  {record.description} · {categoryLabel(record, t)}
                 </span>
               </span>
             ),
@@ -133,14 +136,14 @@ export function AgentPresetSelector({
               className={`${css.seat} ${life === "" ? css.required : ""}`}
               aria-haspopup="menu"
               aria-expanded={lifeOpen}
-              title={life === "" ? "请选择一个数字生命" : chosenLife?.name}
+              title={life === "" ? t("chooseLifeRequired") : chosenLife?.name}
               onClick={() => {
                 setLifeOpen((value) => !value);
               }}
             >
               <span className={css.lifeIcon}>🧠</span>
               <span className={css.seatLabel}>
-                {chosenLife?.name ?? "选择数字生命"}
+                {chosenLife?.name ?? t("chooseLife")}
               </span>
               <IconChevronDownOutline14 className={css.chevron} />
             </button>

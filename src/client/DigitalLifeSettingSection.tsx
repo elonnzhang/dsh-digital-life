@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
+import type { PropsRuntime, TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
 import type { SettingsScope, SettingsScopeSnapshot } from "@deepseek-ai/dsh-client-runtime/client";
 import type { DigitalLifeCategory, DigitalLifeRecord, DigitalLifeSettings } from "../types.js";
 import css from "./DigitalLifeSettingSection.module.css";
+import { categoryLabel } from "./locales.js";
 
 /**
  * Resolve the identity source stored for an editor draft.
@@ -36,6 +37,7 @@ export interface DigitalLifeSettingSectionInjected {
   };
   scope: SettingsScope<DigitalLifeSettings>;
   loadIdentity: (id: string) => Promise<string>;
+  t: TranslateNS<"digital-life">;
 }
 
 type Props = PropsRuntime<"settings.section"> & {
@@ -56,6 +58,7 @@ const EMPTY_RECORD: DigitalLifeRecord = {
 
 /** Render the persisted digital-life settings editor. */
 export function DigitalLifeSettingSection(props: Props): ReactNode {
+  const t = props.t;
   const snapshot = props.useSettings((value) => value);
   const [draft, setDraft] = useState<DigitalLifeRecord | undefined>(undefined);
   const [editingId, setEditingId] = useState<string | undefined>(undefined);
@@ -74,14 +77,14 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
   if (snapshot.status === "loading")
     return (
       <section className={css.section}>
-        <p>正在加载数字生命配置…</p>
+        <p>{t("loading")}</p>
       </section>
     );
   if (snapshot.status !== "ready" || settings === undefined) {
     return (
       <section className={css.section}>
-        <h2>数字生命</h2>
-        <p className={css.notice}>当前 Host 未暴露 digital-life 配置。</p>
+        <h2>{t("title")}</h2>
+        <p className={css.notice}>{t("unavailable")}</p>
       </section>
     );
   }
@@ -95,7 +98,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
   const beginEdit = (record: DigitalLifeRecord): void => {
     setEditingId(record.id);
     setDraft(undefined);
-    setMessage("正在读取人格文件…");
+    setMessage(t("readingIdentity"));
     void props
       .loadIdentity(record.id)
       .then((identity) => {
@@ -128,16 +131,16 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
     if (draft.persona.trim() === "" && (draft.agent?.trim() ?? "") === "") missing.add("persona");
     setInvalidFields(missing);
     if (missing.size > 0) {
-      setMessage("请填写标红的必填字段。");
+      setMessage(t("required"));
       return;
     }
     if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) {
-      setMessage("ID 只能包含小写字母、数字和连字符。");
+      setMessage(t("invalidId"));
       setInvalidFields(new Set(["id"]));
       return;
     }
     if (editingId !== id && ids.has(id)) {
-      setMessage("该 ID 已存在。");
+      setMessage(t("duplicateId"));
       setInvalidFields(new Set(["id"]));
       return;
     }
@@ -152,7 +155,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
         // contain the pre-save records even when the write succeeded.
         setDraft(undefined);
         setEditingId(undefined);
-        setMessage("已保存，Agent 人格文件已同步");
+        setMessage(t("saved"));
       })
       .catch((error) => {
         setMessage(error instanceof Error ? error.message : String(error));
@@ -165,7 +168,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
         records.filter((record) => record.id !== id),
       )
       .then(() => {
-        setMessage("已删除");
+        setMessage(t("deleted"));
       });
   };
 
@@ -173,27 +176,27 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
     <section className={css.section}>
       <header className={css.header}>
         <div>
-          <h2>数字生命</h2>
-          <p>创建可由主代理通过工具咨询的人格代理，也可在输入框中使用 @id。</p>
+          <h2>{t("title")}</h2>
+          <p>{t("intro")}</p>
         </div>
         <button className={css.primary} type="button" onClick={beginAdd} disabled={!snapshot.writable}>
-          新增数字生命
+          {t("add")}
         </button>
       </header>
       <div className={css.runtime}>
         <label className={css.wide}>
-          插件数据目录（stateDir）
+          {t("stateDir")}
           <input
             value={settings.stateDir ?? ""}
             onChange={(event) => {
               void props.scope.set("stateDir", event.target.value);
             }}
-            placeholder="默认 ~/.dsh/digital-life/"
+            placeholder={t("stateDirPlaceholder")}
             disabled={!snapshot.writable}
           />
         </label>
         <label>
-          子代理 Provider
+          {t("provider")}
           <input
             value={provider}
             onChange={(event) => {
@@ -203,7 +206,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
           />
         </label>
         <label>
-          分类最大咨询数
+          {t("maxBatchSize")}
           <input
             type="number"
             min={1}
@@ -219,14 +222,14 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
       {message === undefined ? null : <p className={css.notice}>{message}</p>}
       <div className={css.cards}>
         {records.length === 0 ? (
-          <div className={css.empty}>尚未配置数字生命</div>
+          <div className={css.empty}>{t("empty")}</div>
         ) : (
           records.map((record) => (
             <article className={css.card} key={record.id}>
               <div className={css.cardMain}>
                 <div className={css.identity}>
                   <strong>{record.name}</strong>
-                  <span>{record.category === "custom" ? record.customCategory : record.category}</span>
+                  <span>{categoryLabel(record, t)}</span>
                   <code className={css.recordId}>@{record.id}</code>
                 </div>
                 <div className={css.tagRow} title={record.tags.join(" · ")}>
@@ -250,7 +253,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
                       );
                     }}
                   />
-                  启用
+                  {t("enabled")}
                 </label>
                 <button
                   type="button"
@@ -258,7 +261,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
                     beginEdit(record);
                   }}
                 >
-                  编辑
+                  {t("edit")}
                 </button>
                 <button
                   type="button"
@@ -267,7 +270,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
                     remove(record.id);
                   }}
                 >
-                  删除
+                  {t("remove")}
                 </button>
               </div>
             </article>
@@ -278,6 +281,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
         <Editor
           draft={draft}
           existing={editingId !== undefined}
+          t={t}
           setDraft={setDraft}
           invalidFields={invalidFields}
           clearInvalidField={(field) => {
@@ -320,6 +324,7 @@ function parseAgentMetadata(frontmatter: string): {
 function Editor({
   draft,
   existing,
+  t,
   setDraft,
   invalidFields,
   clearInvalidField,
@@ -328,6 +333,7 @@ function Editor({
 }: {
   draft: DigitalLifeRecord;
   existing: boolean;
+  t: TranslateNS<"digital-life">;
   setDraft: (value: DigitalLifeRecord) => void;
   invalidFields: Set<string>;
   clearInvalidField: (field: string) => void;
@@ -347,7 +353,7 @@ function Editor({
       const end = markdown.startsWith("---\n") ? markdown.indexOf("\n---\n", 4) : -1;
       const frontmatter = end === -1 ? "" : markdown.slice(4, end);
       const identity = (end === -1 ? markdown : markdown.slice(end + 5)).trim();
-      if (identity === "") throw new Error("Agent 文件没有身份正文。");
+      if (identity === "") throw new Error(t("identityError"));
 
       // Prefer the Agent frontmatter as the source of truth for metadata. A
       // browser only exposes the filename, not the local absolute path.
@@ -368,8 +374,8 @@ function Editor({
   const externalBinding = draft.agent !== undefined && draft.agent !== managedBinding;
   return (
     <div className={css.backdrop}>
-      <div className={css.editor} role="dialog" aria-modal="true" aria-label="编辑数字生命">
-        <h3>{existing ? `编辑 ${draft.name || "数字生命"}` : "新增数字生命"}</h3>
+      <div className={css.editor} role="dialog" aria-modal="true" aria-label={t("dialogEdit")}>
+        <h3>{existing ? `${t("edit")} ${draft.name || t("defaultLife")}` : t("dialogAdd")}</h3>
         <div className={css.form}>
           <label>
             ID
@@ -385,17 +391,18 @@ function Editor({
             />
           </label>
           <label>
-            名字
+            {t("name")}
             <input
               className={invalidFields.has("name") ? css.invalid : undefined}
               value={draft.name}
               onChange={(event) => {
                 update("name", event.target.value);
               }}
+              placeholder={t("namePlaceholder")}
             />
           </label>
           <label>
-            能力标签（逗号分隔）
+            {t("tags")}
             <input
               className={invalidFields.has("tags") ? css.invalid : undefined}
               value={draft.tags.join(", ")}
@@ -408,37 +415,38 @@ function Editor({
                     .filter(Boolean),
                 );
               }}
-              placeholder="例如：市场研究，结构化，审查"
+              placeholder={t("tagsPlaceholder")}
             />
           </label>
           <label>
-            主领域
+            {t("category")}
             <select
               value={draft.category}
               onChange={(event) => {
                 update("category", event.target.value as DigitalLifeCategory);
               }}
             >
-              <option value="business">企业</option>
-              <option value="science">科学</option>
-              <option value="tech">技术</option>
-              <option value="culture">文化</option>
-              <option value="custom">自定义</option>
+              <option value="business">{t("categoryBusiness")}</option>
+              <option value="science">{t("categoryScience")}</option>
+              <option value="tech">{t("categoryTech")}</option>
+              <option value="culture">{t("categoryCulture")}</option>
+              <option value="entertainment">{t("categoryEntertainment")}</option>
+              <option value="custom">{t("categoryCustom")}</option>
             </select>
           </label>
           {draft.category === "custom" ? (
             <label>
-              自定义主领域
+              {t("customCategory")}
               <input
                 className={invalidFields.has("customCategory") ? css.invalid : undefined}
                 value={draft.customCategory ?? ""}
                 onChange={(event) => update("customCategory", event.target.value)}
-                placeholder="例如：战略咨询"
+                placeholder={t("customCategoryPlaceholder")}
               />
             </label>
           ) : null}
           <label className={css.full}>
-            Agent 人格文件
+            {t("agent")}
             <span className={css.fileBinding}>
               <input
                 value={draft.agent ?? (existing ? `agents/${draft.id}.md` : "")}
@@ -447,13 +455,13 @@ function Editor({
                   update("agent", value === "" ? undefined : value);
                   setBoundFile(undefined);
                 }}
-                placeholder="Host 路径，如 ~/.claude/agents/xxx.md"
+                placeholder={t("agentPlaceholder")}
                 disabled={existing}
                 readOnly={existing}
               />
               {existing ? null : (
                 <button type="button" onClick={() => fileInput.current?.click()}>
-                  选择并导入
+                  {t("importFile")}
                 </button>
               )}
               <input
@@ -471,27 +479,30 @@ function Editor({
             <span className={fileError === undefined ? css.hint : css.fileError}>
               {fileError ??
                 (externalBinding
-                  ? "外部 Agent 文件是唯一人格来源；插件不会复制或覆盖该文件。"
+                  ? t("externalHint")
                   : existing
-                    ? "修改人格设定后会同步写回托管 Agent 文件。"
+                    ? t("managedExistingHint")
                     : boundFile === undefined
-                      ? "填写 Host 文件路径可绑定外部文件；从浏览器选择文件会导入到托管文件。"
-                      : `已导入：${boundFile}，保存后写入 ${draft.id || "{id}"}/agents/${draft.id || "{id}"}.md`)}
+                      ? t("managedNewHint")
+                      : t("importedHint", {
+                        file: boundFile,
+                        path: `${draft.id || "{id}"}/agents/${draft.id || "{id}"}.md`,
+                      }))}
             </span>
           </label>
           <label className={css.full}>
-            描述
+            {t("description")}
             <input
               className={invalidFields.has("description") ? css.invalid : undefined}
               value={draft.description}
               onChange={(event) => {
                 update("description", event.target.value);
               }}
-              placeholder="例如：擅长创业战略与现金流分析"
+              placeholder={t("descriptionPlaceholder")}
             />
           </label>
           <label className={css.full}>
-            人格设定 {externalBinding ? "（由 Agent 文件提供，只读）" : existing ? "（修改后同步到 Agent 文件）" : ""}
+            {t("persona")} {externalBinding ? t("personaExternal") : existing ? t("personaManaged") : ""}
             <textarea
               className={invalidFields.has("persona") ? css.invalid : undefined}
               rows={8}
@@ -503,7 +514,7 @@ function Editor({
             />
           </label>
           <label className={css.full}>
-            允许的工具（逗号分隔，留空表示继承）
+            {t("tools")}
             <input
               value={draft.toolFilter?.join(", ") ?? ""}
               onChange={(event) => {
@@ -518,10 +529,10 @@ function Editor({
         </div>
         <div className={css.editorActions}>
           <button type="button" onClick={onCancel}>
-            取消
+            {t("cancel")}
           </button>
           <button className={css.primary} type="button" onClick={onSave}>
-            保存
+            {t("save")}
           </button>
         </div>
       </div>

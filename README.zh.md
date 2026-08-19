@@ -92,6 +92,8 @@ pnpm dsh plugin --profile web add /path/to/dsh-digital-life
 
 启动 Web Profile 后，打开 **设置 → 数字生命**，新增或编辑一条记录：
 
+插件界面跟随 Harness 当前语言，完整支持英文和简体中文。切换应用语言时，设置页、Chat Panel 和会话选择器会即时更新；用户填写的名称、描述和人格内容保持原文，不会自动翻译。
+
 - **ID**：只能使用小写字母、数字和连字符，例如 `startup-mentor`
 - **名称**：显示名称，例如 `创业导师`
 - **职责描述**：简短说明它负责什么

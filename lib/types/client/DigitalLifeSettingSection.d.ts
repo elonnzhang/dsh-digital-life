@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
+import type { PropsRuntime, TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
 import type { SettingsScope, SettingsScopeSnapshot } from "@deepseek-ai/dsh-client-runtime/client";
 import type { DigitalLifeRecord, DigitalLifeSettings } from "../types.js";
 /**
@@ -18,6 +18,7 @@ export interface DigitalLifeSettingSectionInjected {
     };
     scope: SettingsScope<DigitalLifeSettings>;
     loadIdentity: (id: string) => Promise<string>;
+    t: TranslateNS<"digital-life">;
 }
 type Props = PropsRuntime<"settings.section"> & {
     useSettings: <T>(selector: (snapshot: SettingsScopeSnapshot<DigitalLifeSettings>) => T) => T;

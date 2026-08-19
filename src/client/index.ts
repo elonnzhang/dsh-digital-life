@@ -11,6 +11,8 @@ import type {} from "@deepseek-ai/dsh-client-ui-settings/client";
 import type {} from "@deepseek-ai/dsh-client-ui-settings-plugins/client";
 import type {} from "@deepseek-ai/dsh-client-ui-layout/client";
 import type {} from "@deepseek-ai/dsh-client-ui-sidebar/client";
+import type {} from "@deepseek-ai/dsh-client-locale/client";
+import type { TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
 import type {
   ClientConnectionRpc,
   ConnectionHandle,
@@ -23,6 +25,13 @@ import {
 } from "./DigitalLifeSettingSection.js";
 import { ChatPanel, type ChatPanelInjected } from "./ChatPanel.js";
 import { installAgentPresetSelector } from "./installAgentPresetSelector.js";
+import { en, NS, zh, type DigitalLifeKey } from "./locales.js";
+
+declare module "@deepseek-ai/dsh-client-ui-slots" {
+  interface LocaleNamespaceMap {
+    "digital-life": DigitalLifeKey;
+  }
+}
 
 export const inject = [
   "slots",
@@ -30,9 +39,12 @@ export const inject = [
   "connection",
   "remote",
   "settingsScope",
+  "locale",
 ];
 
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), "digital-life: dictionaries");
+  const t = ctx.locale.bind(NS);
   const scope = ctx.settingsScope.bind<DigitalLifeSettings>({
     namespace: DIGITAL_LIFE_NAMESPACE,
   });
@@ -43,6 +55,7 @@ export function apply(ctx: ClientContext): void {
   const injected = (): DigitalLifeSettingSectionInjected => ({
     hooks: { settings: hookSource },
     scope,
+    t,
     async loadIdentity(id) {
       const connection = ctx.get("connection") as ConnectionHandle | undefined;
       if (connection === undefined)
@@ -113,8 +126,8 @@ export function apply(ctx: ClientContext): void {
           type: "text",
           text:
             record === undefined
-              ? "你好，我们开始一个独立对话。请简短确认对话已开始，并询问我想讨论什么。"
-              : `你好。请保持数字生命“${record.name}”的身份开始独立对话。职责描述：${record.description}。请先简短介绍你能提供的帮助。`,
+              ? t("independentGreeting")
+              : t("sessionGreeting", { name: record.name, description: record.description }),
         },
       ],
       "queue",
@@ -123,19 +136,20 @@ export function apply(ctx: ClientContext): void {
     return sessionId;
   };
 
-  const chatInjected = (): ChatPanelInjected => ({ records, createSession });
+  const chatInjected = (): ChatPanelInjected => ({ records, createSession, t });
   ctx.slots.inject("sidebar.footer.action", () =>
     ctx.slots.register(
       {
         name: "sidebar.footer.action",
         id: "digital-life-chat-panel",
         order: -10,
+        locale: NS,
         inject: chatInjected,
       },
       ChatPanel,
     ),
   );
-  installAgentPresetSelector(ctx, records);
+  installAgentPresetSelector(ctx, records, t);
 
   ctx.slots.inject("settings.section", () =>
     ctx.slots.register(
@@ -143,7 +157,8 @@ export function apply(ctx: ClientContext): void {
         name: "settings.section",
         id: DIGITAL_LIFE_NAMESPACE,
         order: 25,
-        label: "数字生命",
+        label: () => t("nav"),
+        locale: NS,
         inject: injected,
       },
       DigitalLifeSettingSection,

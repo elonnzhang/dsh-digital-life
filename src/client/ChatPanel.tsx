@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
+import type { PropsRuntime, TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
 import type {} from "@deepseek-ai/dsh-client-ui-sidebar/client";
 import type { SessionId } from "@deepseek-ai/dsh-api-remotes/client";
 import type { DigitalLifeRecord } from "../types.js";
 import css from "./ChatPanel.module.css";
+import { categoryLabel } from "./locales.js";
 
 /** Data and actions supplied by the Host-backed Client installer. */
 export interface ChatPanelInjected {
   records: () => readonly DigitalLifeRecord[];
   createSession: (record?: DigitalLifeRecord) => Promise<SessionId>;
+  t: TranslateNS<"digital-life">;
 }
 
 export type ChatPanelProps = PropsRuntime<"sidebar.footer.action"> & ChatPanelInjected;
 
-export function ChatPanel({ wide, records, createSession }: ChatPanelProps) {
+export function ChatPanel({ wide, records, createSession, t }: ChatPanelProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -37,7 +39,7 @@ export function ChatPanel({ wide, records, createSession }: ChatPanelProps) {
       <button
         type="button"
         className={css.trigger}
-        aria-label="Chat Panel"
+        aria-label={t("chatAria")}
         aria-expanded={open}
         onClick={() => {
           if (wide) setOpen((value) => !value);
@@ -47,15 +49,15 @@ export function ChatPanel({ wide, records, createSession }: ChatPanelProps) {
         <span className={css.triggerIcon}>💡</span>
         {wide && (
           <span className={css.triggerText}>
-            <strong>Chat</strong>
-            <small>独立会话与数字生命</small>
+            <strong>{t("chat")}</strong>
+            <small>{t("chatDescription")}</small>
           </span>
         )}
         {wide && <span className={css.chevron}>{open ? "⌃" : "⌄"}</span>}
       </button>
       {wide && open && (
-        <section className={css.panel} aria-label="启动独立会话">
-          <div className={css.title}>启动独立会话</div>
+        <section className={css.panel} aria-label={t("startSessionAria")}>
+          <div className={css.title}>{t("startSession")}</div>
           <button
             type="button"
             className={css.action}
@@ -64,7 +66,7 @@ export function ChatPanel({ wide, records, createSession }: ChatPanelProps) {
             }}
           >
             <span className={css.icon}>＋</span>
-            <span>新建独立会话</span>
+            <span>{t("newSession")}</span>
           </button>
           {records().map((record) => (
             <button
@@ -78,7 +80,7 @@ export function ChatPanel({ wide, records, createSession }: ChatPanelProps) {
               <span className={css.avatar}>{record.name.slice(0, 1)}</span>
               <span className={css.text}>
                 <strong>{record.name}</strong>
-                <small>{record.category}</small>
+                <small>{categoryLabel(record, t)}</small>
               </span>
             </button>
           ))}

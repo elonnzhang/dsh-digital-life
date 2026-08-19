@@ -5,6 +5,8 @@ import type {
 import type { ConnectionHandle } from "@deepseek-ai/dsh-client-connection/client";
 import type { DigitalLifeRecord } from "../types.js";
 import type { ClientConnectionRpc } from "@deepseek-ai/dsh-client-connection/client";
+import type { TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
+import { NS } from "./locales.js";
 import {
   AgentPresetSelector,
   type AgentPresetSelectorInjected,
@@ -14,6 +16,7 @@ import {
 export function installAgentPresetSelector(
   ctx: ClientContext,
   records: () => readonly DigitalLifeRecord[],
+  t: TranslateNS<"digital-life">,
 ): void {
   const connection = ctx.get("connection") as ConnectionHandle | undefined;
   const sessions = ctx.get("sessions") as ISessions | undefined;
@@ -23,6 +26,7 @@ export function installAgentPresetSelector(
   const rpc = connection.rpc as unknown as ClientConnectionRpc;
   const injected = (): AgentPresetSelectorInjected => ({
     records,
+    t,
     async selectLife(id) {
       selectedLife = id;
       const currentId = sessions.list.getSnapshot().current;
@@ -126,6 +130,7 @@ export function installAgentPresetSelector(
       {
         name: "conversation.hero.agentPreset",
         priority: -10,
+        locale: NS,
         inject: injected,
       },
       AgentPresetSelector,
