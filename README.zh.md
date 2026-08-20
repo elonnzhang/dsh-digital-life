@@ -17,17 +17,10 @@
 
 ## 演示
 
-### 首页选择器
-
-<img src="pics/home.png" alt="Harness 首页中的数字生命选择器" width="960">
-
-### Chat Panel
-
-<img src="pics/chat.png" alt="数字生命 Chat Panel" width="960">
-
-### 设置页面
-
-<img src="pics/setting.png" alt="数字生命设置页面" width="960">
+<!-- prettier-ignore -->
+| 首页选择器 | Chat Panel | 设置 | 新增数字生命 |
+| ---- | ---- | ---- | ------ |
+| <img src="pics/home.png" alt="Harness 首页中的数字生命选择器" width="960"> | <img src="pics/chat.png" alt="数字生命 Chat Panel" width="960"> | <img src="pics/setting.png" alt="数字生命设置页面" width="960"> | <img src="pics/setting2.png" alt="新增数字生命表单" width="960"> |
 
 ## 数字生命记录字段
 

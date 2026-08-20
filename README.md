@@ -18,17 +18,10 @@ English | [中文](README.zh.md)
 
 ## Demo
 
-### Homepage selector
-
-<img src="pics/home.png" alt="Digital-life selector on the Harness homepage" width="960">
-
-### Chat Panel
-
-<img src="pics/chat.png" alt="Digital-life Chat Panel" width="960">
-
-### Settings
-
-<img src="pics/setting.png" alt="Digital-life settings" width="960">
+<!-- prettier-ignore -->
+| Homepage selector | Chat Panel | Settings | Create digital life |
+| ---- | ---- | ---- | ------ |
+| <img src="pics/home.png" alt="Digital-life selector on the Harness homepage" width="960"> | <img src="pics/chat.png" alt="Digital-life Chat Panel" width="960"> | <img src="pics/setting.png" alt="Digital-life settings" width="960"> | <img src="pics/setting2.png" alt="Create digital-life form" width="960"> |
 
 ## Record fields
 
@@ -46,11 +39,9 @@ Each record has an `id`, `name`, `description`, primary-domain `category`, compo
 
 ### Install
 
-Replace `OWNER` with the GitHub account or organization that owns this repository:
-
 ```sh
 cd /path/to/deepseek-harness
-pnpm dsh plugin --profile web add https://github.com/OWNER/dsh-digital-life.git
+pnpm dsh plugin --profile web add https://github.com/elonnzhang/dsh-digital-life.git
 ```
 
 The command installs the plugin into `$DSH_HOME/profiles/web`, adds its bundle to the Web Profile, and applies its Host and Client halves on the next boot.
@@ -171,7 +162,7 @@ If the profile still uses an old linked installation, remove and add it again:
 
 ```sh
 pnpm dsh plugin --profile web remove dsh-digital-life
-pnpm dsh plugin --profile web add https://github.com/OWNER/dsh-digital-life.git
+pnpm dsh plugin --profile web add https://github.com/elonnzhang/dsh-digital-life.git
 ```
 
 ## Model Experience
