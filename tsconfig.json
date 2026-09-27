@@ -1,20 +1,22 @@
 {
   "compilerOptions": {
-    "target": "ES2024",
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "types": ["node"],
+
     "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
     "jsx": "react-jsx",
     "skipLibCheck": true,
-    "declaration": true,
-    "declarationMap": true,
-    "rootDir": "src",
-    "outDir": "lib/types",
-    "types": [
-      "node"
-    ]
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "noEmit": true
   },
-  "include": [
-    "src"
-  ]
+  "include": ["src", "tsdown.config.ts", "tsdown.client.ts"]
 }

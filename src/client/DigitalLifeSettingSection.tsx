@@ -1,6 +1,9 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { PropsRuntime, TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
-import type { SettingsScope, SettingsScopeSnapshot } from "@deepseek-ai/dsh-client-runtime/client";
+import type {
+  ConfigForm,
+  ConfigFormSnapshot,
+} from "@deepseek-ai/dsh-client-ui-settings/client";
 import type { DigitalLifeCategory, DigitalLifeRecord, DigitalLifeSettings } from "../types.js";
 import css from "./DigitalLifeSettingSection.module.css";
 import { categoryLabel } from "./locales.js";
@@ -20,28 +23,28 @@ export function normalizeDigitalLifeRecord(draft: DigitalLifeRecord): DigitalLif
     id,
     name: draft.name.trim(),
     description: draft.description.trim(),
-    customCategory: draft.customCategory?.trim() || undefined,
+    ...(draft.customCategory?.trim() ? { customCategory: draft.customCategory.trim() } : {}),
     tags: draft.tags.map((tag) => tag.trim()).filter(Boolean),
     agent: managed ? managedBinding : agent,
     persona: managed ? draft.persona.trim() : "",
   };
 }
 
-/** Settings scope and reactive source injected into the settings section. */
+/** Config form and reactive source injected into the settings section. */
 export interface DigitalLifeSettingSectionInjected {
   hooks: {
     settings: {
-      getSnapshot(): SettingsScopeSnapshot<DigitalLifeSettings>;
+      getSnapshot(): ConfigFormSnapshot<DigitalLifeSettings>;
       subscribe(listener: () => void): () => void;
     };
   };
-  scope: SettingsScope<DigitalLifeSettings>;
+  form: ConfigForm<DigitalLifeSettings>;
   loadIdentity: (id: string) => Promise<string>;
   t: TranslateNS<"digital-life">;
 }
 
 type Props = PropsRuntime<"settings.section"> & {
-  useSettings: <T>(selector: (snapshot: SettingsScopeSnapshot<DigitalLifeSettings>) => T) => T;
+  useSettings: <T>(selector: (snapshot: ConfigFormSnapshot<DigitalLifeSettings>) => T) => T;
 } & Omit<DigitalLifeSettingSectionInjected, "hooks">;
 
 // digital life status
@@ -105,7 +108,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
         setDraft({
           ...record,
           persona: identity,
-          toolFilter: record.toolFilter === undefined ? undefined : [...record.toolFilter],
+          ...(record.toolFilter === undefined ? {} : { toolFilter: [...record.toolFilter] }),
         });
         setInvalidFields(new Set());
         setMessage(undefined);
@@ -147,9 +150,13 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
     const next = normalizeDigitalLifeRecord(draft);
     const nextRecords =
       editingId === undefined ? [...records, next] : records.map((record) => (record.id === editingId ? next : record));
-    void props.scope
+    void props.form
       .set("records", nextRecords)
-      .then(() => {
+      .then((saved) => {
+        if (!saved) {
+          setMessage(t("writeFailed"));
+          return;
+        }
         // SettingsScope publishes the refreshed snapshot asynchronously after
         // the wire write. Do not inspect the old snapshot here: it can still
         // contain the pre-save records even when the write succeeded.
@@ -162,13 +169,16 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
       });
   };
   const remove = (id: string): void => {
-    void props.scope
+    void props.form
       .set(
         "records",
         records.filter((record) => record.id !== id),
       )
-      .then(() => {
-        setMessage(t("deleted"));
+      .then((deleted) => {
+        setMessage(t(deleted ? "deleted" : "writeFailed"));
+      })
+      .catch((error) => {
+        setMessage(error instanceof Error ? error.message : String(error));
       });
   };
 
@@ -189,7 +199,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
           <input
             value={settings.stateDir ?? ""}
             onChange={(event) => {
-              void props.scope.set("stateDir", event.target.value);
+              void props.form.set("stateDir", event.target.value);
             }}
             placeholder={t("stateDirPlaceholder")}
             disabled={!snapshot.writable}
@@ -200,7 +210,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
           <input
             value={provider}
             onChange={(event) => {
-              void props.scope.set("provider", event.target.value);
+              void props.form.set("provider", event.target.value);
             }}
             disabled={!snapshot.writable}
           />
@@ -213,7 +223,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
             max={20}
             value={maxBatchSize}
             onChange={(event) => {
-              void props.scope.set("maxBatchSize", Number(event.target.value));
+              void props.form.set("maxBatchSize", Number(event.target.value));
             }}
             disabled={!snapshot.writable}
           />
@@ -245,7 +255,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
                     type="checkbox"
                     checked={record.enabled}
                     onChange={(event) => {
-                      void props.scope.set(
+                      void props.form.set(
                         "records",
                         records.map((item) =>
                           item.id === record.id ? { ...item, enabled: event.target.checked } : item,
@@ -311,7 +321,7 @@ function parseAgentMetadata(frontmatter: string): {
   for (const line of frontmatter.split("\n")) {
     const match = /^(id|name|description):\s*["']?(.+?)["']?\s*$/.exec(line.trim());
     if (match === null) continue;
-    const value = match[2].trim();
+    const value = match[2]?.trim() ?? "";
     if (match[1] === "id") values.id = value;
     // The canonical file uses `name` for the stable record id and stores the
     // display name/tag in description: "名称（标签）".
@@ -363,7 +373,8 @@ function Editor({
       const name = metadata.name ?? draft.name;
       // A browser-selected file cannot be reopened by the Host after the picker closes.
       // Persist the imported identity inline instead of the browser-only filename.
-      setDraft({ ...draft, id, name, agent: undefined, persona: identity });
+      const { agent: _agent, ...withoutAgent } = draft;
+      setDraft({ ...withoutAgent, id, name, persona: identity });
       setBoundFile(file.name);
       setFileError(undefined);
     } catch (error) {

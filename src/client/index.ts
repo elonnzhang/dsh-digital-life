@@ -1,30 +1,39 @@
-import type {
-  ClientContext,
-  ISessions,
-  SessionId,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type { Context as ClientContext } from "@deepseek-ai/cordis";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
+import type { AgentPresetRow } from "@deepseek-ai/dsh-agent-preset-registry/types";
+import type { ClientRemote } from "@deepseek-ai/dsh-api-remotes/client";
 import type {
   InputTriggerServiceContract,
   InputTriggerSource,
 } from "@deepseek-ai/dsh-client-ui-input-trigger/client";
+// Type-only: pulls the ctx.slots service merge (SlotRegistry) into scope.
+import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
+// Type-only: pulls the ctx.configForms service merge (ConfigForms) into scope.
 import type {} from "@deepseek-ai/dsh-client-ui-settings/client";
 import type {} from "@deepseek-ai/dsh-client-ui-settings-plugins/client";
 import type {} from "@deepseek-ai/dsh-client-ui-layout/client";
 import type {} from "@deepseek-ai/dsh-client-ui-sidebar/client";
 import type {} from "@deepseek-ai/dsh-client-locale/client";
+// Type-only: pulls the ctx.sessions service merge (ISessions) into scope.
+import type { ISessions } from "@deepseek-ai/dsh-api-session-controller/client";
+// Type-only: pulls the ctx.uiWorkspace navigation service merge into scope.
+import type {} from "@deepseek-ai/dsh-client-ui-workspace/client";
 import type { TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
 import type {
   ClientConnectionRpc,
   ConnectionHandle,
 } from "@deepseek-ai/dsh-client-connection/client";
 import { DIGITAL_LIFE_NAMESPACE } from "../constants.js";
-import type { DigitalLifeSettings } from "../types.js";
+import type { DigitalLifeRecord, DigitalLifeSettings } from "../types.js";
 import {
   DigitalLifeSettingSection,
   type DigitalLifeSettingSectionInjected,
 } from "./DigitalLifeSettingSection.js";
 import { ChatPanel, type ChatPanelInjected } from "./ChatPanel.js";
-import { installAgentPresetSelector } from "./installAgentPresetSelector.js";
+import {
+  installAgentPresetSelector,
+  type PrepareDigitalLifeSession,
+} from "./installAgentPresetSelector.js";
 import { en, NS, zh, type DigitalLifeKey } from "./locales.js";
 
 declare module "@deepseek-ai/dsh-client-ui-slots" {
@@ -33,28 +42,36 @@ declare module "@deepseek-ai/dsh-client-ui-slots" {
   }
 }
 
+declare module "@deepseek-ai/dsh-api-session-controller/client" {
+  interface SessionReferenceSourceMap {
+    /** A digital-life session retained while its opening greeting is written. */
+    digitalLife: unknown;
+  }
+}
+
+/** The Host plugin entry id whose settings this Client half edits. */
+const DIGITAL_LIFE_ENTRY_ID = DIGITAL_LIFE_NAMESPACE;
+
 export const inject = [
   "slots",
   "inputTriggers",
   "connection",
   "remote",
-  "settingsScope",
+  "remote.agentPresets",
+  "conversation",
+  "configForms",
   "locale",
+  "sessions",
+  "uiWorkspace",
 ];
 
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), "digital-life: dictionaries");
   const t = ctx.locale.bind(NS);
-  const scope = ctx.settingsScope.bind<DigitalLifeSettings>({
-    namespace: DIGITAL_LIFE_NAMESPACE,
-  });
-  const hookSource = {
-    getSnapshot: () => scope.getSnapshot(),
-    subscribe: (listener: () => void) => scope.subscribe(listener),
-  };
+  const form = ctx.configForms.get<DigitalLifeSettings>(DIGITAL_LIFE_ENTRY_ID);
   const injected = (): DigitalLifeSettingSectionInjected => ({
-    hooks: { settings: hookSource },
-    scope,
+    hooks: { settings: form },
+    form,
     t,
     async loadIdentity(id) {
       const connection = ctx.get("connection") as ConnectionHandle | undefined;
@@ -67,73 +84,78 @@ export function apply(ctx: ClientContext): void {
     },
   });
   const records = (): NonNullable<DigitalLifeSettings["records"]> =>
-    scope.getSnapshot().value?.records?.filter((record) => record.enabled) ??
-    [];
-  const createSession: ChatPanelInjected["createSession"] = async (record) => {
+    form.getSnapshot().value?.records?.filter((record) => record.enabled) ?? [];
+  // The Host `dsh-session` and Client Session Controller both merge a `sessions`
+  // service onto Context; read the Client contract explicitly.
+  const sessions = ctx.get("sessions") as unknown as ISessions;
+  const remote = ctx.get("remote") as ClientRemote;
+  const selectDigitalLifeMode = async (sessionId: SessionId): Promise<void> => {
+    const roster = await remote.agentPresets.list();
+    if (!roster.ok && roster.error.code !== "gateway/invocation-unavailable")
+      throw new Error(roster.error.message);
+    const modeAvailable = roster.ok && roster.value.presets.some(
+      (preset: AgentPresetRow) => preset.id === "digital-life-mode" && preset.broken === undefined,
+    );
+    if (modeAvailable) {
+      const selected = await remote.agentPresets.select(sessionId, "digital-life-mode");
+      if (!selected.ok) throw new Error(selected.error.message);
+    }
+  };
+  const prepareSession = async (record?: DigitalLifeRecord) => {
     const connection = ctx.get("connection") as ConnectionHandle | undefined;
     if (connection === undefined)
       throw new Error("digital-life: connection service is unavailable");
-    const sessions = ctx.get("sessions") as ISessions | undefined;
-    if (sessions === undefined)
-      throw new Error("digital-life: sessions service is unavailable");
     const rpc = connection.rpc as unknown as ClientConnectionRpc;
-    const generated =
-      `digital-life-${record?.id ?? "independent"}-${Date.now()}` as SessionId;
-    const result = await connection.api.sessions.create({
-      sessionId: generated,
-      ...(record === undefined ? {} : { agentPreset: "digital-life-mode" }),
-    });
-    if (!result.result.ok) throw new Error(result.result.error.message);
-    const sessionId = result.result.value.sessionId;
-    await new Promise<void>((resolve, reject) => {
-      let disposed = false;
-      let dispose = (): void => {};
-      const finish = (error?: Error): void => {
-        if (disposed) return;
-        disposed = true;
-        window.clearTimeout(timer);
-        dispose();
-        if (error === undefined) resolve();
-        else reject(error);
-      };
-      const settle = (): void => {
-        if (sessions.binding(sessionId) !== undefined) finish();
-      };
-      dispose = sessions.list.subscribe(settle);
-      const timer = window.setTimeout(() => {
-        finish(
-          new Error(
-            `digital-life: created session "${sessionId}" was not published to the client`,
-          ),
-        );
-      }, 10000);
-      settle();
-    });
-    sessions.open(sessionId);
-    const session = sessions.binding(sessionId)?.session;
-    if (session === undefined)
-      throw new Error(`digital-life: unknown created session "${sessionId}"`);
-    if (record !== undefined) {
-      const init = await rpc.call("/digital-life", "bind", {
-        sessionId,
-        recordId: record.id,
-      });
-      if (!init.ok) throw new Error(init.error.message);
+    const project = await rpc.call("/digital-life", "project", {});
+    if (!project.ok) throw new Error(project.error.message);
+    const cwd = (project.value as { cwd?: unknown }).cwd;
+    if (typeof cwd !== "string" || cwd === "")
+      throw new Error("digital-life: project directory is unavailable");
+    const sessionId = await sessions.create({ cwd });
+    const reference = sessions.retain(sessionId, { source: "digitalLife" });
+    try {
+      await reference.ready;
+      if (record !== undefined) {
+        await selectDigitalLifeMode(sessionId);
+        const init = await rpc.call("/digital-life", "bind", {
+          sessionId,
+          recordId: record.id,
+        });
+        if (!init.ok) throw new Error(init.error.message);
+      }
+      return { sessionId, reference };
+    } catch (error) {
+      reference.release();
+      throw error;
     }
-    const accepted = await session.prompt(
-      [
-        {
-          type: "text",
-          text:
-            record === undefined
-              ? t("independentGreeting")
-              : t("sessionGreeting", { name: record.name, description: record.description }),
-        },
-      ],
-      "queue",
-    );
-    if (!accepted.ok) throw new Error(accepted.error.message);
-    return sessionId;
+  };
+  const openDigitalLifeSession: PrepareDigitalLifeSession = async (record) => {
+    const { sessionId, reference } = await prepareSession(record);
+    try {
+      ctx.uiWorkspace.openSession(sessionId);
+      return sessionId;
+    } finally {
+      reference.release();
+    }
+  };
+  const createSession: ChatPanelInjected["createSession"] = async (record) => {
+    const { sessionId, reference } = await prepareSession(record);
+    try {
+      const connection = ctx.get("connection") as ConnectionHandle | undefined;
+      if (connection === undefined)
+        throw new Error("digital-life: connection service is unavailable");
+      const rpc = connection.rpc as unknown as ClientConnectionRpc;
+      const text =
+        record === undefined
+          ? t("independentGreeting")
+          : t("sessionGreeting", { name: record.name, description: record.description });
+      const greeting = await rpc.call("/digital-life", "greeting", { sessionId, text });
+      if (!greeting.ok) throw new Error(greeting.error.message);
+      ctx.uiWorkspace.openSession(sessionId);
+      return sessionId;
+    } finally {
+      reference.release();
+    }
   };
 
   const chatInjected = (): ChatPanelInjected => ({ records, createSession, t });
@@ -149,7 +171,7 @@ export function apply(ctx: ClientContext): void {
       ChatPanel,
     ),
   );
-  installAgentPresetSelector(ctx, records, t);
+  installAgentPresetSelector(ctx, records, t, openDigitalLifeSession);
 
   ctx.slots.inject("settings.section", () =>
     ctx.slots.register(
@@ -191,7 +213,7 @@ export function apply(ctx: ClientContext): void {
       return records().map((item) => item.id);
     },
     subscribeLexicon(_session, listener) {
-      return scope.subscribe(listener);
+      return form.subscribe(listener);
     },
     onPick({ candidate }) {
       return { text: `@${candidate.name} ` };

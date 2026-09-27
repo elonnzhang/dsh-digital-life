@@ -10,6 +10,10 @@
   gap: 2px;
   min-width: 0;
 }
+.error {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
 /* Menu renders its own wrapper span around the anchor, so THAT span is the
    flex item the row squeezes — the seat button below only ever sees the width
    this wrapper keeps. Floor: padding + icon + both gaps + chevron, so a fully
@@ -92,11 +96,6 @@
   color: var(--dsw-alias-label-caption);
   white-space: normal;
 }
-.required {
-  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-warn-primary);
-  color: var(--dsw-alias-state-warn-primary);
-}
-
 /* Phone width: the workspace chip and two labelled seats cannot share the row
    at all, so the preset seat collapses to icon + chevron the way the host's
    own mode chips do (PermissionSelect .trigger:has(.triggerIcon)) and hands

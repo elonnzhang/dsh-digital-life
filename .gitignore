@@ -1,5 +1,14 @@
-node_modules
+node_modules/
 .DS_Store
+
+lib/
+*.tgz
+*.log
+.env
+.env.*
+!.env.example
+
+dev/cordis.dev.local.yml
 
 # Keep the source repository independent from the workspace's nested checkout.
 dsh-digital-life/

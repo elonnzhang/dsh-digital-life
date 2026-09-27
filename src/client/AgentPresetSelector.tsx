@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { PropsRuntime, TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
+import type { ObservableSnapshot } from "@deepseek-ai/dsh-client-store";
 import type {} from "@deepseek-ai/dsh-client-ui-conversation/client";
 import {
-  IconAgentPresetOutline16,
-  IconChevronDownOutline14,
+  IconAgentPresetOutlineMedium,
+  IconChevronDownOutlineMedium,
   Menu,
 } from "@deepseek-ai/dsh-client-ui-primitives";
 import type { DigitalLifeRecord } from "../types.js";
@@ -19,10 +20,11 @@ export interface AgentPresetOption {
 
 /** Callbacks and records injected by the Client installer. */
 export interface AgentPresetSelectorInjected {
-  load: () => Promise<{ options: AgentPresetOption[]; current: string }>;
+  load: () => Promise<{ options: AgentPresetOption[]; current: string; life?: string }>;
   select: (id: string) => Promise<void>;
   records: () => readonly DigitalLifeRecord[];
   selectLife: (id: string) => Promise<void>;
+  developerTools: ObservableSnapshot<boolean>;
   t: TranslateNS<"digital-life">;
 }
 
@@ -35,25 +37,50 @@ export function AgentPresetSelector({
   select,
   records,
   selectLife,
+  developerTools,
   t,
 }: AgentPresetSelectorProps) {
+  const developerToolsEnabled = useSyncExternalStore(
+    developerTools.subscribe,
+    developerTools.getSnapshot,
+    developerTools.getSnapshot,
+  );
   const [options, setOptions] = useState<AgentPresetOption[]>([]);
   const [current, setCurrent] = useState("");
   const [life, setLife] = useState("");
   const [presetOpen, setPresetOpen] = useState(false);
   const [lifeOpen, setLifeOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | undefined>();
 
   useEffect(() => {
-    void load().then((value) => {
-      setOptions(value.options);
-      setCurrent(value.current);
-    });
-  }, [load]);
+    if (!developerToolsEnabled) {
+      setOptions([]);
+      setCurrent("");
+      setLife("");
+      setLoadError(undefined);
+      return;
+    }
+    void load()
+      .then((value) => {
+        setOptions(value.options);
+        setCurrent(value.current);
+        setLife(value.life ?? "");
+        setLoadError(undefined);
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setLoadError(message);
+        console.error("digital-life: failed to load agent presets", error);
+      });
+  }, [developerToolsEnabled, load]);
 
   const chosen = options.find((option) => option.id === current);
   const chosenLife = records().find((record) => record.id === life);
-  if (options.length === 0) return null;
+  if (!developerToolsEnabled) return null;
+  if (options.length === 0) {
+    return loadError === undefined ? null : <div className={css.error} role="alert">{loadError}</div>;
+  }
   const presetName = chosen?.name ?? current;
 
   return (
@@ -78,11 +105,18 @@ export function AgentPresetSelector({
         selectedId={current}
         onSelect={(id) => {
           setPresetOpen(false);
-          setCurrent(id);
+          const previous = current;
           setBusy(true);
-          void select(id).finally(() => {
-            setBusy(false);
-          });
+          void select(id)
+            .then(() => {
+              setCurrent(id);
+              if (id !== "digital-life-mode") setLife("");
+            })
+            .catch((error: unknown) => {
+              setCurrent(previous);
+              console.error("digital-life: failed to select agent preset", error);
+            })
+            .finally(() => setBusy(false));
         }}
         align="start"
         portal
@@ -98,9 +132,9 @@ export function AgentPresetSelector({
               setPresetOpen((value) => !value);
             }}
           >
-            <IconAgentPresetOutline16 className={css.icon} />
+            <IconAgentPresetOutlineMedium className={css.icon} />
             <span className={css.seatLabel}>{presetName}</span>
-            <IconChevronDownOutline14 className={css.chevron} />
+            <IconChevronDownOutlineMedium className={css.chevron} />
           </button>
         }
       />
@@ -125,15 +159,20 @@ export function AgentPresetSelector({
           selectedId={life}
           onSelect={(id) => {
             setLifeOpen(false);
-            setLife(id);
-            void selectLife(id);
+            void selectLife(id)
+              .then(() => {
+                setLife(id);
+              })
+              .catch((error) => {
+                console.error("digital-life: failed to select digital life", error);
+              });
           }}
           align="start"
           portal
           anchor={
             <button
               type="button"
-              className={`${css.seat} ${life === "" ? css.required : ""}`}
+              className={css.seat}
               aria-haspopup="menu"
               aria-expanded={lifeOpen}
               title={life === "" ? t("chooseLifeRequired") : chosenLife?.name}
@@ -145,7 +184,7 @@ export function AgentPresetSelector({
               <span className={css.seatLabel}>
                 {chosenLife?.name ?? t("chooseLife")}
               </span>
-              <IconChevronDownOutline14 className={css.chevron} />
+              <IconChevronDownOutlineMedium className={css.chevron} />
             </button>
           }
         />

@@ -25,6 +25,24 @@ export function digitalLifeHome(
   return root.endsWith(`${sep}digital-life`) ? root : join(root, "digital-life");
 }
 
+/** Create an empty working directory for a standalone Chat session. */
+export async function createProject(stateDir?: string): Promise<string> {
+  const projects = join(digitalLifeHome(process.env, stateDir), "projects");
+  await mkdir(projects, { recursive: true, mode: 0o700 });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  for (let suffix = 0; suffix < 100; suffix += 1) {
+    const name = suffix === 0 ? stamp : `${stamp}-${String(suffix)}`;
+    const path = join(projects, name);
+    try {
+      await mkdir(path, { mode: 0o700 });
+      return path;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  throw new Error("digital-life: unable to allocate a project directory");
+}
+
 /** WorkBuddy-compatible canonical agent location. */
 export function agentPath(id: string, stateDir?: string): string {
   return join(digitalLifeHome(process.env, stateDir), id, "agents", `${id}.md`);
@@ -121,8 +139,9 @@ async function persist(
     await readAgentIdentity(binding, stateDir);
     return;
   }
+  const { agent: _agent, ...withoutAgent } = record;
   const identity = mode === "update"
-    ? record.persona.trim() || await identityFor({ ...record, agent: undefined }, stateDir)
+    ? record.persona.trim() || await identityFor(withoutAgent, stateDir)
     : record.persona.trim();
   if (identity === "")
     throw new Error(`digital-life: no identity configured for "${record.id}"`);

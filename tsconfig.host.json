@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src/host", "src/index.ts", "src/invariant.ts", "src/constants.ts", "src/types.ts"]
+}

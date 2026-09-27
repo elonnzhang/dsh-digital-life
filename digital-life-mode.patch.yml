@@ -1,0 +1,17 @@
+- insert:
+    - id: preset-digital-life-mode
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: digital-life-mode
+        name: 数字生命模式
+        description: 与选定的数字生命建立独立对话，或向其他数字生命咨询。
+        order: 5
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: >-
+                你处于数字生命模式。若当前会话尚未绑定具体数字生命，请让用户先从会话顶部的
+                数字生命选择器或侧边栏 Chat Panel 选择一位数字生命；不要假装自己已经拥有该身份。
+                已绑定时遵循会话中的数字生命身份设定。
+              includeRuntimeContext: false

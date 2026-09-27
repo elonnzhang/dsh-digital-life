@@ -1,6 +1,8 @@
 import type { DigitalLifeRecord } from "../types.js";
 /** Resolve the per-digital-life storage root. */
 export declare function digitalLifeHome(env?: Record<string, string | undefined>, stateDir?: string): string;
+/** Create an empty working directory for a standalone Chat session. */
+export declare function createProject(stateDir?: string): Promise<string>;
 /** WorkBuddy-compatible canonical agent location. */
 export declare function agentPath(id: string, stateDir?: string): string;
 /**

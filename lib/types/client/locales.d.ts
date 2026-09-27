@@ -22,6 +22,7 @@ export declare const zh: {
     readonly duplicateId: "该 ID 已存在。";
     readonly saved: "已保存，Agent 人格文件已同步";
     readonly deleted: "已删除";
+    readonly writeFailed: "保存失败，请重试。";
     readonly dialogEdit: "编辑数字生命";
     readonly dialogAdd: "新增数字生命";
     readonly defaultLife: "数字生命";
@@ -89,6 +90,7 @@ export declare const en: {
     duplicateId: string;
     saved: string;
     deleted: string;
+    writeFailed: string;
     dialogEdit: string;
     dialogAdd: string;
     defaultLife: string;

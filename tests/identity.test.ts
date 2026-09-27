@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { agentDocument, agentIdentity, agentPath, digitalLifeHome, identityFor, initializeIdentities, managedAgentBinding, reconcileIdentities } from '../src/host/identity.js'
+import { agentDocument, agentIdentity, agentPath, createProject, digitalLifeHome, identityFor, initializeIdentities, managedAgentBinding, reconcileIdentities } from '../src/host/identity.js'
 import type { DigitalLifeRecord } from '../src/types.js'
 
 const record: DigitalLifeRecord = {
@@ -26,6 +26,14 @@ describe('digital-life expert agent identity', () => {
   it('does not append digital-life twice when stateDir already names the data directory', async () => {
     const root = await home()
     expect(digitalLifeHome(process.env, join(root, 'digital-life'))).toBe(join(root, 'digital-life'))
+  })
+
+  it('creates isolated project directories under the digital-life home', async () => {
+    const root = await home()
+    const first = await createProject()
+    const second = await createProject()
+    expect(first).toMatch(new RegExp(`^${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/digital-life/projects/`))
+    expect(second).not.toBe(first)
   })
 
   it('renders compatible YAML frontmatter', () => {

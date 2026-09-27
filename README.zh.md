@@ -13,14 +13,14 @@
 - 注册 `@<id>` 输入源，用于选择已配置的数字生命。
 - 通过 additive `sidebar.footer.action` Slot 注入 Chat Panel，不替换 Harness 的 Sidebar 或 Workspace 浏览器。
 - 创建不附加 Workspace 的独立会话，并使用所选数字生命初始化会话。
-- 在首页提供组合选择器：选择 `数字生命模式` Agent preset 后，再选择具体数字生命。
+- 将 `digital-life-mode` 注册到 Harness 首页原生 Agent preset 选择器及预设设置页；具体数字生命可从会话选择器或侧边栏 Chat Panel 选择。
 
 ## 演示
 
 <!-- prettier-ignore -->
-| 首页选择器 | Chat Panel | 设置 | 新增数字生命 |
-| ---- | ---- | ---- | ------ |
-| <img src="pics/home.png" alt="Harness 首页中的数字生命选择器" width="960"> | <img src="pics/chat.png" alt="数字生命 Chat Panel" width="960"> | <img src="pics/setting.png" alt="数字生命设置页面" width="960"> | <img src="pics/setting2.png" alt="新增数字生命表单" width="960"> |
+| Chat Panel | 设置 | 新增数字生命 |
+| ---- | ---- | ------ |
+| <img src="pics/chat.png" alt="数字生命 Chat Panel" width="960"> | <img src="pics/setting.png" alt="数字生命设置页面" width="960"> | <img src="pics/setting2.png" alt="新增数字生命表单" width="960"> |
 
 ## 数字生命记录字段
 
@@ -53,16 +53,19 @@ pnpm dsh web --port 3080
 
 打开 `http://127.0.0.1:3080`，然后进入 **设置 → 数字生命**。
 
-> GitHub 仓库必须包含构建后的 `lib/` 目录，因为 `package.json` 的 `main` 和 Client 入口都指向构建产物。每次发布新的 GitHub 版本前，请先构建并推送：
+> GitHub 安装会运行包里的 `prepare`，从源码构建 `lib/`。为了让发布内容可复现，推送前先在本地完成检查：
 >
 > ```sh
 > cd /path/to/dsh-digital-life
 > pnpm install
-> pnpm build
-> git add src lib cordis.patch.yml package.json README.md README.zh.md
-> git commit -m "build: update plugin"
+> pnpm run check
+> git add .gitignore .npmrc src scripts docs package.json pnpm-lock.yaml tsconfig.json tsconfig.types.json tsdown.config.ts tsdown.client.ts cordis.patch.yml README.md README.zh.md
+> git commit -m "build: update plugin contract"
 > git push
 > ```
+
+> pnpm 10 及以上版本安装 GitHub 源码时可能需要在目标 Profile 中显式配置 `allowBuilds`，见
+> [docs/publish.md](docs/publish.md)。
 
 ### 更新或卸载
 
@@ -78,20 +81,60 @@ pnpm dsh plugin --profile web remove dsh-digital-life
 
 安装、更新或卸载后，重新启动 `pnpm dsh web`。
 
-### 本地开发安装
+### 本地开发
 
-本地开发时，可以把插件 checkout 直接 link 到 Profile：
+把插件 checkout link 到 Profile 一次，之后对着运行中的服务迭代：
 
 ```sh
 cd /path/to/dsh-digital-life
 pnpm install
-pnpm build
+pnpm run check
 
 cd /path/to/deepseek-harness
 pnpm dsh plugin --profile web add /path/to/dsh-digital-life
+pnpm dsh web --port 3080
 ```
 
-开发 Client HMR 时，在 Harness checkout 中保持 `pnpm run dev:web` 运行，并在本插件目录运行 `tsdown --watch`。
+#### 构建
+
+`pnpm run build` 用 `tsdown` 构建两个半边，然后刷新声明兼容目录：
+
+| 产物 | 入口 | 消费方 |
+| --- | --- | --- |
+| `lib/index.js` | `src/index.ts` | Host，由 cordis apply |
+| `lib/index.d.ts` | Host 类型声明 | TypeScript 消费方 |
+| `lib/invariant.js` | `src/invariant.ts` | `exports["./invariant"]` |
+| `lib/client.js` | `src/client/index.ts` | 浏览器，服务在 `/plugins/dsh-digital-life/client.js` |
+| `lib/types/client/index.d.ts` | Client 类型声明 | `./client` 的 TypeScript 消费方 |
+
+`lib/index.d.ts` 和 `lib/invariant.d.ts` 由 tsdown 生成；`build:types` 额外生成双面 Client
+导出所需的 `lib/types/**` 声明。Client 运行时入口仍是 loader 注册用的浏览器产物，不是普通
+可 import 的浏览器库。
+
+Client 产物不是普通的浏览器 bundle。web shell 的模块 loader 要求它调用
+`window.__ModuleLoader__.load({ id, factory })` 自我注册；加载了却没注册的 bundle 会让插件启动失败，
+报 `bundle … loaded without registering "dsh-digital-life"`。`tsdown.client.ts` 负责产出这层包装
+（CJS 输出套在 factory 的 banner 与 footer 里），把 shell 模块表里的 specifier 保持为 external，
+使其留成 loader 能应答的 `require()` 调用，并把每个样式表编译成带哈希类名的样式注入模块。
+把它换成普通的浏览器打包配置，坏的不只是样式，而是插件启动。
+
+#### 热加载
+
+运行中的 `dsh web` 会 stat 轮询它服务的每个 client bundle，所以重写 `lib/client.js` 就是全部触发条件——不用重启服务，也不用刷新页面：
+
+```sh
+cd /path/to/dsh-digital-life
+pnpm run dev
+```
+
+内容变化后 Host 会在 `GET /plugins/events` 通道上广播一帧 `rebuilt`，浏览器半边随即原地替换 cordis fiber：丢掉旧 factory、重新拉取 bundle、等旧 fiber 的 disposer 排空、移除 `<style data-plugin="dsh-digital-life">` 标签，然后重新 apply。被替换子树里的组件状态会丢失，页面其余部分照常运行。
+
+有两类改动落在这条链之外，需要重启 `dsh web`：Host 半边，因为 Web Profile 没有挂载 node 侧的插件重载；以及 `cordis.patch.yml`，因为组合关系只在启动时读取。
+
+不要在这里用 Harness 自己的 `pnpm run dev:web`。它是 Harness checkout 内部包的 watch 构建，不能和那边的 `pnpm run build` 同时跑，而且对仓外包什么都不会重建。
+
+包契约、本地 overlay 和发布方式见 [`docs/build.md`](docs/build.md)、
+[`docs/load-into-dsh.md`](docs/load-into-dsh.md) 与 [`docs/publish.md`](docs/publish.md)。
 
 ## 使用方法
 
@@ -139,12 +182,9 @@ $DSH_HOME/settings.yaml
 
 ### 4. 创建独立会话
 
-有两种方式：
+从会话顶部选择一个数字生命，或打开侧边栏 **Chat Panel** 选择。未选择数字生命时输入框会被阻塞；如果没有选择项目，插件会先在 `~/.dsh/digital-life/projects/<datetime>` 下创建独立项目，再打开会话。
 
-- 打开侧边栏 **Chat Panel**，选择一个数字生命。
-- 在首页选择 `数字生命模式` Agent preset，再选择具体数字生命。
-
-独立会话不附加 Workspace，不传 `workspaceId` 或 `cwd`，并通过 Host binding 注入该记录专属的 system prompt。数字生命会话强制使用**只读文件沙箱**：可以读取文件和进行咨询，但不能修改文件。开场消息是简短提示，不会重复完整人格设定。
+独立会话不附加 Workspace，不传 `workspaceId` 或 `cwd`，并通过 Host binding 注入该记录专属的 system prompt。所选身份保存在 `$DSH_HOME/digital-life/sessions/`，Host 重启后仍可恢复。数字生命会话强制使用**只读文件沙箱**；此模式提供数字生命咨询工具，不提供文件修改工具。开场消息是简短提示，不会重复完整人格设定。
 
 在数字生命独立会话中，使用 `@<id>` 点名其他记录时必须调用 `consult_digital_life`，当前数字生命不得模拟或代替对方回答；点名当前数字生命自身的 ID 时直接回答，不进行自我咨询。
 
@@ -161,7 +201,7 @@ pnpm dsh web --port 3080
 
 ```sh
 pnpm dsh plugin --profile web remove dsh-digital-life
-pnpm dsh plugin --profile web add https://github.com/OWNER/dsh-digital-life.git
+pnpm dsh plugin --profile web add https://github.com/elonnzhang/dsh-digital-life.git
 ```
 
 ## 设置项
@@ -180,4 +220,4 @@ pnpm dsh plugin --profile web add https://github.com/OWNER/dsh-digital-life.git
 
 ## 已知限制与后续工作
 
-在普通 Chat 中，`@<id>` 是帮助 Agent 选择 `consult_digital_life` 的模型可见文本，不是自动命令；在数字生命独立会话中，持久化 system prompt 要求点名其他记录时必须使用咨询工具，点名自身时直接回答。当前公共 Sidebar 没有 Workspace 浏览器上方的 additive Slot，因此 Chat Panel 使用受支持的 footer action Slot。选择具体记录时，独立会话使用 `digital-life-mode` Agent preset；每条记录的独立模型配置尚未应用到 Session 创建过程。
+在普通 Chat 中，`@<id>` 是帮助 Agent 选择 `consult_digital_life` 的模型可见文本，不是自动命令；在数字生命独立会话中，持久化 system prompt 要求点名其他记录时必须使用咨询工具，点名自身时直接回答。当前公共 Sidebar 没有 Workspace 浏览器上方的 additive Slot，因此 Chat Panel 使用受支持的 footer action Slot。独立会话在 `digital-life-mode` Agent preset 可用时使用该模式，否则使用部署默认 preset；每条记录的独立模型配置尚未应用到 Session 创建过程。

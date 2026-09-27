@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { PropsRuntime, TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
 import type {} from "@deepseek-ai/dsh-client-ui-sidebar/client";
-import type { SessionId } from "@deepseek-ai/dsh-api-remotes/client";
+import { IconChevronDownOutlineMedium, IconLightOutlineMedium } from "@deepseek-ai/dsh-client-ui-primitives";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { DigitalLifeRecord } from "../types.js";
 import css from "./ChatPanel.module.css";
 import { categoryLabel } from "./locales.js";
@@ -17,6 +18,7 @@ export type ChatPanelProps = PropsRuntime<"sidebar.footer.action"> & ChatPanelIn
 
 export function ChatPanel({ wide, records, createSession, t }: ChatPanelProps) {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | undefined>();
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -30,15 +32,18 @@ export function ChatPanel({ wide, records, createSession, t }: ChatPanelProps) {
   }, [open]);
   const start = (record?: DigitalLifeRecord): void => {
     setOpen(false);
+    setError(undefined);
     void createSession(record).catch((error) => {
       console.error("digital-life: failed to start standalone session", error);
+      setError(error instanceof Error ? error.message : String(error));
+      setOpen(true);
     });
   };
   return (
-    <div ref={root} className={css.root}>
+    <div ref={root} className={`${css.root} ${wide ? "" : css.railRoot}`}>
       <button
         type="button"
-        className={css.trigger}
+        className={`${css.trigger} ${wide ? "" : css.rail}`}
         aria-label={t("chatAria")}
         aria-expanded={open}
         onClick={() => {
@@ -46,17 +51,13 @@ export function ChatPanel({ wide, records, createSession, t }: ChatPanelProps) {
           else start();
         }}
       >
-        <span className={css.triggerIcon}>💡</span>
-        {wide && (
-          <span className={css.triggerText}>
-            <strong>{t("chat")}</strong>
-            <small>{t("chatDescription")}</small>
-          </span>
-        )}
-        {wide && <span className={css.chevron}>{open ? "⌃" : "⌄"}</span>}
+        <IconLightOutlineMedium size={wide ? 16 : 18} />
+        {wide && <span className={css.triggerLabel}>{t("chat")}</span>}
+        {wide && <IconChevronDownOutlineMedium className={css.chevron} />}
       </button>
       {wide && open && (
         <section className={css.panel} aria-label={t("startSessionAria")}>
+          {error !== undefined && <div className={css.error} role="alert">{error}</div>}
           <div className={css.title}>{t("startSession")}</div>
           <button
             type="button"
