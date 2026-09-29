@@ -40,7 +40,11 @@ export function ChatPanel({ wide, records, createSession, t }: ChatPanelProps) {
     });
   };
   return (
-    <div ref={root} className={`${css.root} ${wide ? "" : css.railRoot}`}>
+    <div
+      ref={root}
+      data-digital-life-chat={wide ? "wide" : "rail"}
+      className={`${css.root} ${wide ? "" : css.railRoot}`}
+    >
       <button
         type="button"
         className={`${css.trigger} ${wide ? "" : css.rail}`}

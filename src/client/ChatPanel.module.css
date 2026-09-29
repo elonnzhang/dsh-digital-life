@@ -1,3 +1,18 @@
+/*
+ * sidebar.footer.action is a horizontal flex row, but every occupant (this
+ * panel, the Cordis panel, dsh-context context overview) is a full-width 42px
+ * row (or a 36px circle in the collapsed rail). Multiple occupants in one row
+ * push each other past the sidebar edge, so the later entries get clipped and
+ * unreachable in both the expanded sidebar and the collapsed rail. Turn the
+ * footer container into a column so the occupants stack instead. The host wraps
+ * each occupant in a display:contents element, so the real flex row is an
+ * ancestor rather than the direct parent; use a descendant :has() so the rule
+ * reaches the actual footerActions row, and match the attribute in any mode so
+ * the collapsed rail stacks its icons vertically too.
+ */
+:global(div:has([data-digital-life-chat])) {
+  flex-direction: column;
+}
 .root {
   position: relative;
   flex: none;
