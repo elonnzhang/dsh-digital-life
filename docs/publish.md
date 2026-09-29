@@ -7,7 +7,7 @@
 ```sh
 pnpm run check
 pnpm pack
-pnpm dsh plugin --profile web add ./dsh-digital-life-0.1.0.tgz
+pnpm dsh plugin --profile web add ./dsh-digital-life-0.1.1.tgz
 ```
 
 发布到 npm 时，先确认 `files` 中包含 `lib` 与 `cordis.patch.yml`。`cordis.patch.yml` 的
