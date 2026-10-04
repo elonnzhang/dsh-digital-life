@@ -22,7 +22,7 @@ export interface DigitalLifeRecord {
   toolFilter?: string[];
   model?: { provider?: string; model?: string };
   /** Immutable upstream package; user configuration remains separate. */
-  expertPackage?: ExpertPackageBinding;
+  expertPackage?: ExpertPackageBinding | undefined;
   enabled: boolean;
 }
 

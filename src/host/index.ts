@@ -47,11 +47,16 @@ const RecordSchema: z<DigitalLifeRecord> = z.object({
       model: z.string().required(false),
     })
     .required(false),
-  expertPackage: z.object({
-    source: z.const("mimeographs"),
-    slug: z.string(),
-    revision: z.string(),
-  }).required(false),
+  // z.object() defaults to `{}`, which would turn an absent binding into an
+  // invalid one; the union with undefined keeps it absent.
+  expertPackage: z.union([
+    z.object({
+      source: z.const("mimeographs"),
+      slug: z.string(),
+      revision: z.string(),
+    }),
+    z.const(undefined),
+  ]).required(false),
   enabled: z.boolean().default(true),
 });
 

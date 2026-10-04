@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { independentSystemPromptFor, promptFor, validateSettings } from '../src/index.js'
+import { Config, independentSystemPromptFor, promptFor, validateSettings } from '../src/index.js'
 import type { DigitalLifeRecord } from '../src/types.js'
 
 const record: DigitalLifeRecord = {
@@ -21,6 +21,12 @@ describe('digital-life configuration', () => {
   })
   it('allows persona omission when an agent file is configured', () => {
     expect(() => { validateSettings({ records: [{ ...record, persona: '', agent: '~/.agent/agents/mentor.md' }] }) }).not.toThrow()
+  })
+
+  it('accepts records without an expert package after config parsing', () => {
+    const records = Config({ records: [record] }).records.get()
+    expect(records[0]?.expertPackage).toBeUndefined()
+    expect(() => { validateSettings({ records }) }).not.toThrow()
   })
 
   it('rejects duplicate and malformed ids', () => {
