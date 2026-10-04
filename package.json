@@ -31,6 +31,7 @@
     "lib",
     "cordis.patch.yml",
     "digital-life-mode.patch.yml",
+    "docs/expert-services.md",
     "README.md",
     "README.zh.md"
   ],
@@ -66,7 +67,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.host.json && tsc --noEmit -p tsconfig.client.json",
     "test": "vitest run tests",
     "smoke": "node scripts/smoke.mjs",
-    "check": "pnpm run typecheck && pnpm run build && pnpm run smoke",
+    "smoke:experts": "node scripts/smoke-experts.mjs",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run smoke",
     "dev:patch": "node scripts/dev-patch.mjs",
     "dev:web": "node scripts/dev-patch.mjs && dsh web --patch ./dev/cordis.dev.local.yml",
     "dev:dump": "node scripts/dev-patch.mjs && dsh web --patch ./dev/cordis.dev.local.yml --dump-config",

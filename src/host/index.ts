@@ -16,6 +16,8 @@ import { deleteBinding, loadBinding, saveBinding, type DigitalLifeBinding } from
 import type { SubagentResult, SubagentRun } from "@deepseek-ai/dsh-subagent";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { DIGITAL_LIFE_CATEGORIES } from "../constants.js";
+import { createExpertService } from "./expert-service.js";
+import { packageAgentBinding, validatePackageBinding } from "./expert-packages.js";
 import type {
   DigitalLifeCategory,
   DigitalLifeRecord,
@@ -45,6 +47,11 @@ const RecordSchema: z<DigitalLifeRecord> = z.object({
       model: z.string().required(false),
     })
     .required(false),
+  expertPackage: z.object({
+    source: z.const("mimeographs"),
+    slug: z.string(),
+    revision: z.string(),
+  }).required(false),
   enabled: z.boolean().default(true),
 });
 
@@ -105,6 +112,11 @@ export function validateSettings(settings: DigitalLifeSettings): void {
       throw new Error(`digital-life: persona is required unless agent is set for "${record.id}"`);
     if (record.agent !== undefined && record.agent.trim() === "")
       throw new Error(`digital-life: agent cannot be empty for "${record.id}"`);
+    if (record.expertPackage !== undefined) {
+      validatePackageBinding(record.expertPackage);
+      if (record.agent !== packageAgentBinding(record.expertPackage))
+        throw new Error("digital-life: imported expert identity must stay bound to its immutable package");
+    }
     if (ids.has(record.id)) throw new Error(`digital-life: duplicate id "${record.id}"`);
     ids.add(record.id);
   }
@@ -173,6 +185,7 @@ export function independentSystemPromptFor(record: DigitalLifeRecord, identity: 
     `你的主领域是“${record.category === "custom" ? record.customCategory || record.name : record.category}”。`,
     record.tags.length > 0 ? `你的能力标签是：${record.tags.join("、")}。` : "",
     `你的人格设定是：${identity}`,
+    referenceInstructionsFor(record),
     "",
     "这是一个独立的长期对话。你必须在整个会话中保持上述身份和人格，不要把自己描述成主 Agent、子代理或工具。",
     "你可以直接回答用户问题；不要复述这段系统设定，不要声称自己是真实人物。",
@@ -183,7 +196,14 @@ export function independentSystemPromptFor(record: DigitalLifeRecord, identity: 
   ].join("\n");
 }
 
-// /btw
+function referenceInstructionsFor(record: DigitalLifeRecord): string {
+  return record.expertPackage === undefined ? "" : [
+    `你使用的是公开资料生成的方法助手，不代表人物本人或其授权。方法包版本：${record.expertPackage.revision}。`,
+    `需要参考资料时调用 read_expert_reference，id 为 ${record.id}，省略 path 可列出文件。`,
+    "引用应指向实际读取的内容；方法包中列出的外部链接未经本次检索验证。",
+  ].join("\n");
+}
+
 /** Build the one-shot consultation prompt for a digital life. */
 export function promptFor(
   record: DigitalLifeRecord,
@@ -198,6 +218,7 @@ export function promptFor(
         `主领域：${record.category === "custom" ? record.customCategory || record.name : record.category}`,
         record.tags.length > 0 ? `能力标签：${record.tags.join("、")}` : "",
         `人格设定：${identity}`,
+        referenceInstructionsFor(record),
         "这是一条临时咨询：只回答本次问题，不假设与用户建立独立长期会话。区分事实、判断和推测；不要声称自己是真实人物；直接回答问题。",
         `用户问题：${question}`,
       ].join("\n\n"),
@@ -255,10 +276,10 @@ function registerTools(
   ctx: Context,
   current: () => ResolvedDigitalLifeSettings,
   stateDir: () => string | undefined,
+  registerExpertTools: (agent: Pick<Agent, "ctx">) => () => void,
 ): () => void {
-  const disposers = new Map<Agent, () => void>();
-  const registerFor = (target: Agent): (() => void) => {
-    const localDisposers: Array<() => void> = [];
+  const registerFor = (target: Pick<Agent, "ctx">): (() => void) => {
+    const localDisposers: Array<() => void> = [registerExpertTools(target)];
     // 1. specify a digital life to consult
     localDisposers.push(
       target.ctx.tools.register(
@@ -302,7 +323,7 @@ function registerTools(
               id: record.id,
               name: record.name,
               tags: record.tags,
-              answer: await consult(target.ctx, record, args.question, exec, settings.provider, stateDir()),
+              answer: await consult(exec.agent?.ctx ?? target.ctx, record, args.question, exec, settings.provider, stateDir()),
             };
           },
         }),
@@ -338,18 +359,22 @@ function registerTools(
               .slice(0, settings.maxBatchSize);
             if (records.length === 0)
               throw new Error(`digital-life: no enabled records in category "${args.category}"`);
-            const answers = await Promise.all(
+            const results = await Promise.allSettled(
               records.map(async (record) => ({
                 id: record.id,
                 name: record.name,
                 tags: record.tags,
-                answer: await consult(target.ctx, record, args.question, exec, settings.provider, stateDir()),
+                answer: await consult(exec.agent?.ctx ?? target.ctx, record, args.question, exec, settings.provider, stateDir()),
               })),
             );
             return {
               category: args.category as DigitalLifeCategory,
               question: args.question,
-              answers,
+              answers: results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []),
+              errors: results.flatMap((result, index) => result.status === "rejected" ? [{
+                id: records[index]!.id,
+                error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+              }] : []),
             };
           },
         }),
@@ -359,20 +384,8 @@ function registerTools(
       for (const dispose of localDisposers) dispose();
     };
   };
-  for (const agent of ctx.agents.list()) disposers.set(agent, registerFor(agent));
-  ctx.on("agent/created", ({ agent }) => {
-    disposers.set(agent, registerFor(agent));
-    return undefined;
-  });
-  ctx.on("agent/disposed", ({ agent }) => {
-    disposers.get(agent)?.();
-    disposers.delete(agent);
-    return undefined;
-  });
-  return () => {
-    for (const dispose of disposers.values()) dispose();
-    disposers.clear();
-  };
+  // Register on the inherited Host plane so delegated tool restrictions also constrain these tools.
+  return registerFor({ ctx });
 }
 
 // inject digital life features into the host
@@ -419,6 +432,8 @@ export function apply(ctx: Context, config: Config): void {
     };
   };
   const stateDir = (): string | undefined => source().stateDir?.trim() || undefined;
+  const expertService = createExpertService({ current: () => resolved(source()), stateDir });
+  ctx.effect(() => () => expertService.dispose(), "digital-life: expert service lifecycle");
   // Preferences edited through Settings apply to the running fiber in place;
   // opt out of an auto-generated page (the plugin ships its own settings.section).
   ctx.inject(["settings"], (child) => {
@@ -430,6 +445,8 @@ export function apply(ctx: Context, config: Config): void {
       connection.rpc.handle(
         "/digital-life",
         async (endpoint, payload) => {
+          if (endpoint.startsWith("expert/") || endpoint.startsWith("review/"))
+            return expertService.rpc(endpoint, payload);
           if (endpoint === "project") {
             return { ok: true, value: { cwd: await createProject(stateDir()) } };
           }
@@ -566,5 +583,5 @@ export function apply(ctx: Context, config: Config): void {
       ctx.logger.error("digital-life: failed to persist identities", error);
     });
   });
-  ctx.effect(() => registerTools(ctx, () => resolved(source()), stateDir));
+  ctx.effect(() => registerTools(ctx, () => resolved(source()), stateDir, expertService.registerTools));
 }

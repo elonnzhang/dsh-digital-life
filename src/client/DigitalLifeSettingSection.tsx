@@ -7,6 +7,7 @@ import type {
 import type { DigitalLifeCategory, DigitalLifeRecord, DigitalLifeSettings } from "../types.js";
 import css from "./DigitalLifeSettingSection.module.css";
 import { categoryLabel } from "./locales.js";
+import { ExpertWorkbench, type ExpertWorkbenchApi } from "./ExpertWorkbench.js";
 
 /**
  * Resolve the identity source stored for an editor draft.
@@ -40,6 +41,7 @@ export interface DigitalLifeSettingSectionInjected {
   };
   form: ConfigForm<DigitalLifeSettings>;
   loadIdentity: (id: string) => Promise<string>;
+  expertApi: ExpertWorkbenchApi;
   t: TranslateNS<"digital-life">;
 }
 
@@ -193,6 +195,7 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
           {t("add")}
         </button>
       </header>
+      <ExpertWorkbench key={settings.stateDir ?? ""} api={props.expertApi} records={records} writable={snapshot.writable} t={t} />
       <div className={css.runtime}>
         <label className={css.wide}>
           {t("stateDir")}
@@ -241,6 +244,10 @@ export function DigitalLifeSettingSection(props: Props): ReactNode {
                   <strong>{record.name}</strong>
                   <span>{categoryLabel(record, t)}</span>
                   <code className={css.recordId}>@{record.id}</code>
+                  {record.expertPackage !== undefined && <>
+                    <span>{t("expertPublicMethod")} · {t("expertUnreviewed")}</span>
+                    <code title={record.expertPackage.revision}>{record.expertPackage.revision.slice(0, 8)}</code>
+                  </>}
                 </div>
                 <div className={css.tagRow} title={record.tags.join(" · ")}>
                   {record.tags.map((tag) => (

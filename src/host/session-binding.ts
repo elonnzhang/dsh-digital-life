@@ -9,7 +9,7 @@ export interface DigitalLifeBinding {
 }
 
 function bindingPath(sessionId: string, stateDir?: string): string {
-  if (!/^session-[a-z0-9-]+$/.test(sessionId))
+  if (!/^[a-z0-9][a-z0-9-]{0,127}$/.test(sessionId))
     throw new Error(`digital-life: invalid session id "${sessionId}"`);
   return join(digitalLifeHome(process.env, stateDir), "sessions", `${sessionId}.json`);
 }

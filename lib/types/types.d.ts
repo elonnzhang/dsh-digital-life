@@ -1,4 +1,5 @@
 import { DIGITAL_LIFE_CATEGORIES } from "./constants.js";
+import type { ExpertPackageBinding } from "./expert-types.js";
 export type DigitalLifeCategory = (typeof DIGITAL_LIFE_CATEGORIES)[number];
 export interface DigitalLifeRecord {
     id: string;
@@ -21,6 +22,8 @@ export interface DigitalLifeRecord {
         provider?: string;
         model?: string;
     };
+    /** Immutable upstream package; user configuration remains separate. */
+    expertPackage?: ExpertPackageBinding;
     enabled: boolean;
 }
 export interface DigitalLifeSettings {

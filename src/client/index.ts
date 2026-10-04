@@ -35,6 +35,8 @@ import {
   type PrepareDigitalLifeSession,
 } from "./installAgentPresetSelector.js";
 import { en, NS, zh, type DigitalLifeKey } from "./locales.js";
+import { reviewSubmission, type ExpertWorkbenchApi } from "./ExpertWorkbench.js";
+import type { ExpertCatalogEntry, ReviewRun, ReviewSummary } from "../expert-types.js";
 
 declare module "@deepseek-ai/dsh-client-ui-slots" {
   interface LocaleNamespaceMap {
@@ -69,10 +71,56 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), "digital-life: dictionaries");
   const t = ctx.locale.bind(NS);
   const form = ctx.configForms.get<DigitalLifeSettings>(DIGITAL_LIFE_ENTRY_ID);
+  const callExpert = async <T,>(endpoint: string, payload: unknown): Promise<T> => {
+    const connection = ctx.get("connection") as ConnectionHandle | undefined;
+    if (connection === undefined) throw new Error("digital-life: connection service is unavailable");
+    const result = await (connection.rpc as unknown as ClientConnectionRpc).call("/digital-life", endpoint, payload);
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value as T;
+  };
+  const expertApi: ExpertWorkbenchApi = {
+    async catalog(revision) {
+      return (await callExpert<{ experts: ExpertCatalogEntry[] }>("expert/catalog", { revision })).experts;
+    },
+    async importExpert(slug, revision) {
+      const snapshot = form.getSnapshot();
+      if (!snapshot.writable || snapshot.value === undefined) throw new Error(t("unavailable"));
+      const existing = snapshot.value.records?.find((record) => record.expertPackage?.slug === slug && record.expertPackage.revision === revision);
+      if (existing !== undefined) return existing.id;
+      const { record } = await callExpert<{ record: DigitalLifeRecord }>("expert/import", { slug, revision });
+      const latest = form.getSnapshot();
+      if (!latest.writable || latest.value === undefined) throw new Error(t("unavailable"));
+      if (latest.value.stateDir !== snapshot.value.stateDir) throw new Error(t("expertDirectoryChanged"));
+      const records = latest.value.records ?? [];
+      const samePackage = records.find((item) => item.expertPackage?.slug === slug && item.expertPackage.revision === revision);
+      if (samePackage !== undefined) return samePackage.id;
+      const next = records.some((item) => item.id === record.id)
+        ? { ...record, id: `${record.id}-${revision.slice(0, 8)}` }
+        : record;
+      if (records.some((item) => item.id === next.id)) throw new Error(t("expertIdConflict", { id: next.id }));
+      if (!await form.set("records", [...records, next])) throw new Error(t("writeFailed"));
+      return next.id;
+    },
+    async startReview(request) {
+      const available = records();
+      const record = available.find((item) => item.id === request.expertIds[0]);
+      if (record === undefined || !available.some((item) => item.id === request.reviewerId)) throw new Error(t("chooseExpert"));
+      const { sessionId, reference } = await prepareSession(record);
+      try {
+        ctx.uiWorkspace.openSession(sessionId);
+        const result = await reference.binding.session.prompt([{ type: "text", text: reviewSubmission(request, t("reviewRequestInstruction")) }], "queue");
+        if (!result.ok) throw new Error(result.error.message);
+      } finally { reference.release(); }
+    },
+    listReviews: () => callExpert<ReviewSummary[]>("review/list", {}),
+    readReview: (id) => callExpert<{ run: ReviewRun; markdown: string }>("review/read", { id }),
+    async cancelReview(id) { await callExpert("review/cancel", { id }); },
+  };
   const injected = (): DigitalLifeSettingSectionInjected => ({
     hooks: { settings: form },
     form,
     t,
+    expertApi,
     async loadIdentity(id) {
       const connection = ctx.get("connection") as ConnectionHandle | undefined;
       if (connection === undefined)

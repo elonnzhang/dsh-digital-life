@@ -1,0 +1,242 @@
+import { createHash } from "node:crypto";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join, sep } from "node:path";
+import { digitalLifeHome } from "./identity.js";
+import type { DigitalLifeCategory, DigitalLifeRecord } from "../types.js";
+import {
+  MIMEOGRAPHS_REVISION,
+  type ExpertCatalogEntry,
+  type ExpertPackageBinding,
+  type ExpertPackageManifest,
+  type ExpertReference,
+} from "../expert-types.js";
+
+const REPOSITORY = "K-Dense-AI/mimeographs";
+const REVISION = /^[a-f0-9]{40}$/;
+const SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/;
+const REFERENCE = /^references\/[a-z0-9][a-z0-9-]*\.md$/;
+const MAX_FILE_BYTES = 256 * 1024;
+const CATEGORIES: Record<string, DigitalLifeCategory> = {
+  "Founders & operators": "business",
+  Philosophers: "culture",
+  "AI & ML researchers": "tech",
+  "Scientists & researchers": "science",
+};
+
+export function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export function validatePackageBinding(binding: ExpertPackageBinding): void {
+  if (binding.source !== "mimeographs" || !SLUG.test(binding.slug) || !REVISION.test(binding.revision))
+    throw new Error("digital-life: invalid expert package; use a slug and a full lowercase commit SHA");
+}
+
+export function packageAgentBinding(binding: ExpertPackageBinding): string {
+  validatePackageBinding(binding);
+  return `.expert-packages/mimeographs/${binding.revision}/${binding.slug}/AGENTS.md`;
+}
+
+function packageRoot(binding: ExpertPackageBinding, stateDir?: string): string {
+  return dirname(join(digitalLifeHome(process.env, stateDir), packageAgentBinding(binding)));
+}
+
+function fileAllowed(path: string): boolean {
+  return path === "AGENTS.md" || path === "SKILL.md" || path === "LICENSE" || REFERENCE.test(path);
+}
+
+async function fetchText(path: string, revision: string, fetcher: typeof fetch): Promise<string> {
+  if (!REVISION.test(revision)) throw new Error("digital-life: a full commit SHA is required");
+  const response = await fetcher(`https://raw.githubusercontent.com/${REPOSITORY}/${revision}/${path}`, {
+    signal: AbortSignal.timeout(20_000),
+    redirect: "error",
+  });
+  if (!response.ok) throw new Error(`digital-life: download failed (${response.status}): ${path}`);
+  const reader = response.body?.getReader();
+  if (reader === undefined) throw new Error(`digital-life: empty download: ${path}`);
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > MAX_FILE_BYTES) throw new Error(`digital-life: download exceeds ${MAX_FILE_BYTES} bytes: ${path}`);
+      chunks.push(chunk.value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  if (text.trim() === "") throw new Error(`digital-life: empty download: ${path}`);
+  return text;
+}
+
+export async function loadExpertCatalog(
+  revision = MIMEOGRAPHS_REVISION,
+  fetcher: typeof fetch = fetch,
+): Promise<ExpertCatalogEntry[]> {
+  const data: unknown = JSON.parse(await fetchText("catalog.json", revision, fetcher));
+  if (typeof data !== "object" || data === null || !Array.isArray((data as { experts?: unknown }).experts))
+    throw new Error("digital-life: invalid expert catalog");
+  const experts = (data as { experts: unknown[] }).experts;
+  if (experts.length > 500) throw new Error("digital-life: expert catalog is too large");
+  const ids = new Set<string>();
+  return experts.map((value) => {
+    const item = value as Record<string, unknown>;
+    if (typeof item !== "object" || item === null || typeof item.slug !== "string" || !SLUG.test(item.slug) ||
+        typeof item.name !== "string" || item.name.trim() === "" || typeof item.description !== "string" ||
+        typeof item.category !== "string" || !Object.hasOwn(CATEGORIES, item.category) ||
+        item.path !== `mimeographs/${item.slug}` || ids.has(item.slug))
+      throw new Error("digital-life: invalid or duplicate catalog entry");
+    const files = item.files as { agents?: unknown; skill?: unknown; references?: unknown } | undefined;
+    if (files?.agents !== true || files.skill !== true || !Array.isArray(files.references) ||
+        files.references.length > 24 || files.references.some((path: unknown) => typeof path !== "string" || !REFERENCE.test(path)))
+      throw new Error(`digital-life: invalid reference list for ${item.slug}`);
+    ids.add(item.slug);
+    return {
+      slug: item.slug,
+      name: item.name,
+      description: item.description,
+      category: CATEGORIES[item.category]!,
+      references: [...new Set(files.references as string[])],
+    };
+  });
+}
+
+export async function loadExpertPackage(binding: ExpertPackageBinding, stateDir?: string): Promise<ExpertPackageManifest> {
+  const root = packageRoot(binding, stateDir);
+  if ((await lstat(root)).isSymbolicLink()) throw new Error("digital-life: symlinked expert packages are not supported");
+  const raw = await readFile(join(root, "manifest.json"), "utf8");
+  if (Buffer.byteLength(raw) > MAX_FILE_BYTES) throw new Error("digital-life: expert manifest is too large");
+  const value = JSON.parse(raw) as ExpertPackageManifest;
+  if (value === null || value.schemaVersion !== 1 || value.source !== binding.source || value.slug !== binding.slug ||
+      value.revision !== binding.revision || value.sourceType !== "public-method" || value.reviewStatus !== "unreviewed" ||
+      typeof value.name !== "string" || typeof value.description !== "string" || typeof value.importedAt !== "string" ||
+      !Object.values(CATEGORIES).includes(value.category) || !Array.isArray(value.files) || value.files.length > 27 ||
+      value.files.some((file) => !file || typeof file.path !== "string" || !fileAllowed(file.path) ||
+        typeof file.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(file.sha256) ||
+        !Number.isInteger(file.bytes) || file.bytes < 1 || file.bytes > MAX_FILE_BYTES) ||
+      new Set(value.files.map((file) => file.path)).size !== value.files.length ||
+      ["AGENTS.md", "SKILL.md", "LICENSE"].some((path) => !value.files.some((file) => file.path === path)))
+    throw new Error("digital-life: invalid expert manifest");
+  return value;
+}
+
+async function verifiedFile(manifest: ExpertPackageManifest, path: string, stateDir?: string): Promise<string> {
+  const entry = manifest.files.find((file) => file.path === path);
+  if (entry === undefined || !fileAllowed(path)) throw new Error("digital-life: file is not in the expert manifest");
+  const root = await realpath(packageRoot(manifest, stateDir));
+  const file = await realpath(join(root, path));
+  if (!file.startsWith(`${root}${sep}`)) throw new Error("digital-life: reference escapes its expert package");
+  if ((await lstat(file)).size !== entry.bytes) throw new Error(`digital-life: expert file size changed: ${path}`);
+  const text = await readFile(file, "utf8");
+  if (Buffer.byteLength(text) !== entry.bytes || sha256(text) !== entry.sha256)
+    throw new Error(`digital-life: expert file integrity check failed: ${path}`);
+  return text;
+}
+
+export async function readPackageIdentity(binding: ExpertPackageBinding, stateDir?: string): Promise<string> {
+  return verifiedFile(await loadExpertPackage(binding, stateDir), "AGENTS.md", stateDir);
+}
+
+export async function importMimeograph(
+  binding: ExpertPackageBinding,
+  stateDir?: string,
+  fetcher: typeof fetch = fetch,
+): Promise<ExpertPackageManifest> {
+  validatePackageBinding(binding);
+  try {
+    const existing = await loadExpertPackage(binding, stateDir);
+    await Promise.all(existing.files.map((file) => verifiedFile(existing, file.path, stateDir)));
+    return existing;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    // An incomplete existing package must not be silently replaced.
+    try {
+      await lstat(packageRoot(binding, stateDir));
+      throw new Error("digital-life: incomplete expert package; refusing to overwrite it");
+    } catch (missing) {
+      if ((missing as NodeJS.ErrnoException).code !== "ENOENT") throw missing;
+    }
+  }
+  const expert = (await loadExpertCatalog(binding.revision, fetcher)).find((entry) => entry.slug === binding.slug);
+  if (expert === undefined) throw new Error(`digital-life: unknown upstream expert ${binding.slug}`);
+  const paths = ["AGENTS.md", "SKILL.md", "LICENSE", ...expert.references];
+  const contents = await Promise.all(paths.map(async (path) => ({
+    path,
+    text: await fetchText(path === "LICENSE" ? path : `mimeographs/${binding.slug}/${path}`, binding.revision, fetcher),
+  })));
+  const manifest: ExpertPackageManifest = {
+    schemaVersion: 1,
+    ...binding,
+    name: expert.name,
+    description: expert.description,
+    category: expert.category,
+    importedAt: new Date().toISOString(),
+    sourceType: "public-method",
+    reviewStatus: "unreviewed",
+    files: contents.map(({ path, text }) => ({ path, sha256: sha256(text), bytes: Buffer.byteLength(text) })),
+  };
+  const root = packageRoot(binding, stateDir);
+  await mkdir(dirname(root), { recursive: true, mode: 0o700 });
+  const temporary = await mkdtemp(join(dirname(root), ".import-"));
+  try {
+    for (const content of contents) {
+      const path = join(temporary, content.path);
+      await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+      await writeFile(path, content.text, { encoding: "utf8", mode: 0o600 });
+    }
+    await writeFile(join(temporary, "manifest.json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
+    try {
+      await rename(temporary, root);
+    } catch (error) {
+      if (!["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      const existing = await loadExpertPackage(binding, stateDir);
+      for (const file of existing.files) await verifiedFile(existing, file.path, stateDir);
+      return existing;
+    }
+    return manifest;
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+export function recordForPackage(manifest: ExpertPackageManifest): DigitalLifeRecord {
+  const expertPackage: ExpertPackageBinding = { source: manifest.source, slug: manifest.slug, revision: manifest.revision };
+  return {
+    id: `mimeograph-${manifest.slug}`,
+    name: manifest.name,
+    description: manifest.description,
+    category: manifest.category,
+    tags: ["mimeographs", "public-method"],
+    persona: "",
+    agent: packageAgentBinding(expertPackage),
+    expertPackage,
+    toolFilter: ["read_expert_reference"],
+    enabled: true,
+  };
+}
+
+export async function readExpertReference(
+  record: DigitalLifeRecord,
+  path: string,
+  stateDir?: string,
+  maxCharacters = 12_000,
+): Promise<ExpertReference> {
+  if (record.expertPackage === undefined) throw new Error("digital-life: this expert has no imported reference package");
+  if (!REFERENCE.test(path)) throw new Error("digital-life: only declared references/*.md files can be read");
+  const manifest = await loadExpertPackage(record.expertPackage, stateDir);
+  const text = await verifiedFile(manifest, path, stateDir);
+  return {
+    id: `${record.id}@${manifest.revision}:${path}`,
+    expertId: record.id,
+    path,
+    revision: manifest.revision,
+    sha256: sha256(text),
+    sourceUrl: `https://github.com/${REPOSITORY}/blob/${manifest.revision}/mimeographs/${manifest.slug}/${path}`,
+    text: text.slice(0, maxCharacters),
+    truncated: text.length > maxCharacters,
+  };
+}

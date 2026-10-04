@@ -4,6 +4,8 @@ import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { ChatPanelInjected } from "../src/client/ChatPanel.js";
 import type { AgentPresetSelectorInjected } from "../src/client/AgentPresetSelector.js";
 import type { DigitalLifeRecord } from "../src/types.js";
+import type { ExpertWorkbenchApi } from "../src/client/ExpertWorkbench.js";
+import { MIMEOGRAPHS_REVISION } from "../src/expert-types.js";
 
 vi.mock("../src/client/ChatPanel.js", () => ({ ChatPanel: () => null }));
 vi.mock("../src/client/AgentPresetSelector.js", () => ({ AgentPresetSelector: () => null }));
@@ -23,9 +25,12 @@ const record: DigitalLifeRecord = {
 
 function setup(
   presets: readonly { id: string; broken?: string }[],
-  options: { rosterUnavailable?: boolean; selectFails?: boolean } = {},
+  options: { rosterUnavailable?: boolean; selectFails?: boolean; records?: DigitalLifeRecord[] } = {},
 ) {
   const calls: string[] = [];
+  let configuredRecords = options.records ?? [record];
+  let expertApi: ExpertWorkbenchApi | undefined;
+  let promptContent: unknown;
   const sessionId = "session-1" as SessionId;
   let sessionPreset: string | undefined;
   const sessionListeners = new Set<() => void>();
@@ -69,8 +74,9 @@ function setup(
       ready: Promise.resolve(),
       binding: {
         session: {
-          prompt: async () => {
+          prompt: async (content: unknown) => {
             calls.push("prompt");
+            promptContent = content;
             return { ok: true };
           },
         },
@@ -104,6 +110,10 @@ function setup(
             calls.push(endpoint);
             if (endpoint === "project") return { ok: true, value: { cwd: "/tmp/digital-life/projects/test" } };
             if (endpoint === "binding") return { ok: true, value: undefined };
+            if (endpoint === "expert/import") return { ok: true, value: { record: {
+              ...record, id: "mimeograph-test-expert", name: "Imported expert",
+              expertPackage: { source: "mimeographs", slug: "test-expert", revision: MIMEOGRAPHS_REVISION },
+            } } };
             return { ok: true, value: {} };
           },
         },
@@ -120,7 +130,8 @@ function setup(
         },
       },
       get: () => ({
-        getSnapshot: () => ({ value: { records: [record] } }),
+        getSnapshot: () => ({ writable: true, value: { records: configuredRecords } }),
+        set: async (_key: string, value: DigitalLifeRecord[]) => { configuredRecords = value; calls.push("save-records"); return true; },
         subscribe: () => () => {},
       }),
     },
@@ -134,6 +145,7 @@ function setup(
       }) => {
         if (options.name === "sidebar.footer.action")
           createSession = (options.inject?.() as ChatPanelInjected).createSession;
+        if (options.name === "settings.section") expertApi = (options.inject?.() as { expertApi: ExpertWorkbenchApi }).expertApi;
         if (options.name === "conversation.hero.agentPreset") {
           heroPriority = options.priority;
           heroInjected = (options.inject?.("session-1") as AgentPresetSelectorInjected);
@@ -148,6 +160,9 @@ function setup(
   return {
     calls,
     createSession,
+    get expertApi() { return expertApi!; },
+    get records() { return configuredRecords; },
+    get promptContent() { return promptContent; },
     heroPriority,
     get heroInjected() {
       return heroInjected;
@@ -169,6 +184,41 @@ function setup(
 }
 
 describe("digital-life standalone sessions", () => {
+  it("imports an expert without replacing other records", async () => {
+    const fixture = setup([]);
+    await fixture.expertApi.importExpert("test-expert", MIMEOGRAPHS_REVISION);
+    expect(fixture.records).toHaveLength(2);
+    expect(fixture.records[0]).toBe(record);
+    expect(fixture.records[1]?.expertPackage?.revision).toBe(MIMEOGRAPHS_REVISION);
+  });
+
+  it("preserves edits and disabled state on repeated import", async () => {
+    const existing: DigitalLifeRecord = { ...record, name: "User customized", enabled: false,
+      expertPackage: { source: "mimeographs", slug: "test-expert", revision: MIMEOGRAPHS_REVISION } };
+    const fixture = setup([], { records: [existing] });
+    expect(await fixture.expertApi.importExpert("test-expert", MIMEOGRAPHS_REVISION)).toBe(existing.id);
+    expect(fixture.records).toEqual([existing]);
+    expect(fixture.calls).not.toContain("expert/import");
+    expect(fixture.calls).not.toContain("save-records");
+  });
+
+  it("gives a conflicting imported version a separate record ID", async () => {
+    const existing = { ...record, id: "mimeograph-test-expert", name: "User record" };
+    const fixture = setup([], { records: [existing] });
+    const id = await fixture.expertApi.importExpert("test-expert", MIMEOGRAPHS_REVISION);
+    expect(id).toBe(`mimeograph-test-expert-${MIMEOGRAPHS_REVISION.slice(0, 8)}`);
+    expect(fixture.records[0]).toEqual(existing);
+  });
+
+  it("opens and submits a review request after binding the session", async () => {
+    const reviewer = { ...record, id: "critic" };
+    const fixture = setup([{ id: "digital-life-mode" }], { records: [record, reviewer] });
+    await fixture.expertApi.startReview({ question: "Review this plan", expertIds: [record.id], reviewerId: reviewer.id });
+    expect(fixture.calls).toEqual(["project", "create", "list", "select:digital-life-mode", "bind", "open", "prompt", "release"]);
+    expect(JSON.stringify(fixture.promptContent)).toContain("review_expert_plan");
+    expect(JSON.stringify(fixture.promptContent)).toContain("Review this plan");
+  });
+
   it("declares the preset remote used by session creation and the selector", () => {
     expect(inject).toContain("remote.agentPresets");
   });

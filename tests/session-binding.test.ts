@@ -50,4 +50,13 @@ describe("digital-life session binding", () => {
     roots.push(root);
     await expect(saveBinding("../other", { recordId: "life", prompt: "text" }, root)).rejects.toThrow(/invalid session id/);
   });
+
+  it("accepts unprefixed UUID sessions created by the Harness spawn provider", async () => {
+    const root = await mkdtemp(join(tmpdir(), "digital-life-binding-"));
+    roots.push(root);
+    const id = "64e6f29a-0464-4db3-8909-ec50e14f93d9";
+    expect(await loadBinding(id, root)).toBeUndefined();
+    await saveBinding(id, { recordId: "mentor", prompt: "Method" }, root);
+    expect(await loadBinding(id, root)).toEqual({ recordId: "mentor", prompt: "Method" });
+  });
 });

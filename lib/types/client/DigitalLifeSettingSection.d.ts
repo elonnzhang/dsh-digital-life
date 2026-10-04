@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import type { PropsRuntime, TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
 import type { ConfigForm, ConfigFormSnapshot } from "@deepseek-ai/dsh-client-ui-settings/client";
 import type { DigitalLifeRecord, DigitalLifeSettings } from "../types.js";
+import { type ExpertWorkbenchApi } from "./ExpertWorkbench.js";
 /**
  * Resolve the identity source stored for an editor draft.
  * @param draft Record entered in the settings editor.
@@ -18,6 +19,7 @@ export interface DigitalLifeSettingSectionInjected {
     };
     form: ConfigForm<DigitalLifeSettings>;
     loadIdentity: (id: string) => Promise<string>;
+    expertApi: ExpertWorkbenchApi;
     t: TranslateNS<"digital-life">;
 }
 type Props = PropsRuntime<"settings.section"> & {

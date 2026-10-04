@@ -1,0 +1,44 @@
+.root {
+  display: grid;
+  gap: 16px;
+}
+
+.panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.panel h3 { margin: 0; font-size: 16px; }
+.panel p, .panel small { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 1.6; }
+.panel label { display: grid; gap: 6px; min-width: 0; font-size: 13px; color: var(--dsw-alias-label-secondary); }
+.row { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+.row > label { flex: 1 1 220px; }
+.row h3 { flex: 1; align-self: center; }
+.panel button {
+  justify-self: start;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.panel button:disabled { cursor: default; opacity: .5; }
+.panel button:focus-visible { outline: 2px solid var(--dsw-alias-button-primary-fill); outline-offset: 2px; }
+.reviewRow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.panel .openReport { flex: 1; display: grid; gap: 4px; text-align: left; min-width: 0; }
+.openReport span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 500px; overflow-y: auto; font-size: 13px; line-height: 1.65; }
+.error { color: var(--dsw-alias-state-error-primary); overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+  .row { flex-direction: column; align-items: stretch; }
+  .row > label { flex-basis: auto; }
+}

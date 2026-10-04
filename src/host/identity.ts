@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import type { DigitalLifeRecord } from "../types.js";
+import { readPackageIdentity } from "./expert-packages.js";
 
 const MAX_IDENTITY_BYTES = 1024 * 1024;
 
@@ -118,6 +119,7 @@ export async function readAgentIdentity(path: string, stateDir?: string): Promis
 
 /** Read the canonical persisted expert identity. */
 export async function identityFor(record: DigitalLifeRecord, stateDir?: string): Promise<string> {
+  if (record.expertPackage !== undefined) return agentIdentity(await readPackageIdentity(record.expertPackage, stateDir));
   if (record.agent !== undefined) return readAgentIdentity(record.agent, stateDir);
   try {
     return await readIdentityFile(agentPath(record.id, stateDir));
