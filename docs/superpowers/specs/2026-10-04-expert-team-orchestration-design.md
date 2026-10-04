@@ -19,6 +19,7 @@
 - 分析开始后补充新资料并生成修订报告（子项目 C）。
 - 阶段子代理调用工具。所有阶段仍然 `toolFilter: { allow: [] }`，证据由 Host 提供。
 - 专家包质量状态、对照评测。
+- 基于 Agent Teams（`dsh-experimental-agent-team-profile`）实现。它的成员不能设置 persona 和 toolFilter，长期子代理在底层不支持 `outputSchema`，成员之间可以互发消息、共享任务板，无法做到信息隔离。运行视图只借鉴它的成员列表和任务板的界面写法。
 
 ## 2. 架构
 
