@@ -61,17 +61,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.icon,
-.lifeIcon {
+.icon {
   flex: none;
   color: var(--dsw-alias-label-primary);
-}
-.lifeIcon {
-  display: inline-grid;
-  width: 16px;
-  height: 16px;
-  place-items: center;
-  font-size: 13px;
 }
 .chevron {
   flex: none;

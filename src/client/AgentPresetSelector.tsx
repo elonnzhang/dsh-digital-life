@@ -5,6 +5,7 @@ import type {} from "@deepseek-ai/dsh-client-ui-conversation/client";
 import {
   IconAgentPresetOutlineMedium,
   IconChevronDownOutlineMedium,
+  IconUserOutlineMedium,
   Menu,
 } from "@deepseek-ai/dsh-client-ui-primitives";
 import type { DigitalLifeRecord } from "../types.js";
@@ -180,7 +181,7 @@ export function AgentPresetSelector({
                 setLifeOpen((value) => !value);
               }}
             >
-              <span className={css.lifeIcon}>🧠</span>
+              <IconUserOutlineMedium className={css.icon} />
               <span className={css.seatLabel}>
                 {chosenLife?.name ?? t("chooseLife")}
               </span>

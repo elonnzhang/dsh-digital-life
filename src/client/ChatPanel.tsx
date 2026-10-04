@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { PropsRuntime, TranslateNS } from "@deepseek-ai/dsh-client-ui-slots";
 import type {} from "@deepseek-ai/dsh-client-ui-sidebar/client";
-import { IconChevronDownOutlineMedium, IconLightOutlineMedium } from "@deepseek-ai/dsh-client-ui-primitives";
+import {
+  IconChevronDownOutlineMedium,
+  IconNewChatOutlineRegular,
+  IconUsersOutlineMedium,
+} from "@deepseek-ai/dsh-client-ui-primitives";
 import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { DigitalLifeRecord } from "../types.js";
 import css from "./ChatPanel.module.css";
@@ -55,7 +59,7 @@ export function ChatPanel({ wide, records, createSession, t }: ChatPanelProps) {
           else start();
         }}
       >
-        <IconLightOutlineMedium size={wide ? 16 : 18} />
+        <IconUsersOutlineMedium size={wide ? 16 : 18} />
         {wide && <span className={css.triggerLabel}>{t("chat")}</span>}
         {wide && <IconChevronDownOutlineMedium className={css.chevron} />}
       </button>
@@ -70,7 +74,9 @@ export function ChatPanel({ wide, records, createSession, t }: ChatPanelProps) {
               start();
             }}
           >
-            <span className={css.icon}>＋</span>
+            <span className={css.icon}>
+              <IconNewChatOutlineRegular size={14} />
+            </span>
             <span>{t("newSession")}</span>
           </button>
           {records().map((record) => (

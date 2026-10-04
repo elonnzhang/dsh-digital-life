@@ -23,6 +23,7 @@ import type {
   ClientConnectionRpc,
   ConnectionHandle,
 } from "@deepseek-ai/dsh-client-connection/client";
+import { IconUserOutlineRegular, IconUsersOutlineMedium } from "@deepseek-ai/dsh-client-ui-primitives";
 import { DIGITAL_LIFE_NAMESPACE } from "../constants.js";
 import type { DigitalLifeRecord, DigitalLifeSettings } from "../types.js";
 import {
@@ -79,23 +80,25 @@ export function apply(ctx: ClientContext): void {
     return result.value as T;
   };
   const expertApi: ExpertWorkbenchApi = {
-    async catalog(revision) {
-      return (await callExpert<{ experts: ExpertCatalogEntry[] }>("expert/catalog", { revision })).experts;
+    async catalog(ref) {
+      return callExpert<{ ref: string; cached: boolean; experts: ExpertCatalogEntry[] }>("expert/catalog", { ref });
     },
-    async importExpert(slug, revision) {
+    async importExpert(slug, ref) {
+      const imported = (record: DigitalLifeRecord): boolean =>
+        record.expertPackage?.slug === slug && record.expertPackage.ref === ref;
       const snapshot = form.getSnapshot();
       if (!snapshot.writable || snapshot.value === undefined) throw new Error(t("unavailable"));
-      const existing = snapshot.value.records?.find((record) => record.expertPackage?.slug === slug && record.expertPackage.revision === revision);
+      const existing = snapshot.value.records?.find(imported);
       if (existing !== undefined) return existing.id;
-      const { record } = await callExpert<{ record: DigitalLifeRecord }>("expert/import", { slug, revision });
+      const { record } = await callExpert<{ record: DigitalLifeRecord }>("expert/import", { slug, ref });
       const latest = form.getSnapshot();
       if (!latest.writable || latest.value === undefined) throw new Error(t("unavailable"));
       if (latest.value.stateDir !== snapshot.value.stateDir) throw new Error(t("expertDirectoryChanged"));
       const records = latest.value.records ?? [];
-      const samePackage = records.find((item) => item.expertPackage?.slug === slug && item.expertPackage.revision === revision);
+      const samePackage = records.find(imported);
       if (samePackage !== undefined) return samePackage.id;
       const next = records.some((item) => item.id === record.id)
-        ? { ...record, id: `${record.id}-${revision.slice(0, 8)}` }
+        ? { ...record, id: `${record.id}-${ref.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}` }
         : record;
       if (records.some((item) => item.id === next.id)) throw new Error(t("expertIdConflict", { id: next.id }));
       if (!await form.set("records", [...records, next])) throw new Error(t("writeFailed"));
@@ -221,6 +224,9 @@ export function apply(ctx: ClientContext): void {
   );
   installAgentPresetSelector(ctx, records, t, openDigitalLifeSession);
 
+  // The nav-row icon option arrives with the harness after 0.2.0-rc.2; older
+  // hosts drop it and draw their default glyph.
+  const navIcon = { icon: IconUsersOutlineMedium };
   ctx.slots.inject("settings.section", () =>
     ctx.slots.register(
       {
@@ -228,6 +234,7 @@ export function apply(ctx: ClientContext): void {
         id: DIGITAL_LIFE_NAMESPACE,
         order: 25,
         label: () => t("nav"),
+        ...navIcon,
         locale: NS,
         inject: injected,
       },
@@ -251,6 +258,7 @@ export function apply(ctx: ClientContext): void {
           .map((item) => ({
             name: item.id,
             description: `${item.name} · ${item.description}`,
+            icon: IconUserOutlineRegular,
           })),
       );
     },

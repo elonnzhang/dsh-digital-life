@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -37,7 +37,7 @@ describe("digital-life session binding", () => {
     const root = await mkdtemp(join(tmpdir(), "digital-life-binding-"));
     roots.push(root);
     const sessionId = "session-1234";
-    const binding = { recordId: "research-guide", prompt: "Be a researcher" };
+    const binding = { recordId: "research-guide", pre: "Header", persona: "Be a researcher", suf: "Rules" };
 
     expect(await loadBinding(sessionId, root)).toBeUndefined();
     await saveBinding(sessionId, binding, root);
@@ -48,7 +48,7 @@ describe("digital-life session binding", () => {
   it("rejects paths outside the managed session directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "digital-life-binding-"));
     roots.push(root);
-    await expect(saveBinding("../other", { recordId: "life", prompt: "text" }, root)).rejects.toThrow(/invalid session id/);
+    await expect(saveBinding("../other", { recordId: "life", pre: "", persona: "text", suf: "" }, root)).rejects.toThrow(/invalid session id/);
   });
 
   it("accepts unprefixed UUID sessions created by the Harness spawn provider", async () => {
@@ -56,7 +56,19 @@ describe("digital-life session binding", () => {
     roots.push(root);
     const id = "64e6f29a-0464-4db3-8909-ec50e14f93d9";
     expect(await loadBinding(id, root)).toBeUndefined();
-    await saveBinding(id, { recordId: "mentor", prompt: "Method" }, root);
-    expect(await loadBinding(id, root)).toEqual({ recordId: "mentor", prompt: "Method" });
+    const binding = { recordId: "mentor", pre: "", persona: "Method", suf: "" };
+    await saveBinding(id, binding, root);
+    expect(await loadBinding(id, root)).toEqual(binding);
+  });
+
+  it("still reads bindings saved before the prompt was split", async () => {
+    const root = await mkdtemp(join(tmpdir(), "digital-life-binding-"));
+    roots.push(root);
+    const sessionId = "session-legacy";
+    await mkdir(join(root, "digital-life", "sessions"), { recursive: true });
+    await writeFile(join(root, "digital-life", "sessions", `${sessionId}.json`), JSON.stringify({ recordId: "mentor", prompt: "Old" }));
+    expect(await loadBinding(sessionId, root)).toEqual({ recordId: "mentor", prompt: "Old" });
+    await writeFile(join(root, "digital-life", "sessions", `${sessionId}.json`), JSON.stringify({ recordId: "mentor", pre: "x" }));
+    await expect(loadBinding(sessionId, root)).rejects.toThrow(/invalid binding/);
   });
 });

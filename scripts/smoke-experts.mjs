@@ -10,7 +10,7 @@ try {
   assert.ok(catalog.some((entry) => entry.slug === "andrej-karpathy"));
   const binding = { source: "mimeographs", slug: "andrej-karpathy", revision: MIMEOGRAPHS_REVISION };
   const manifest = await importMimeograph(binding, stateDir);
-  const reference = await readExpertReference(recordForPackage(manifest), "references/frameworks.md", stateDir);
+  const reference = await readExpertReference(recordForPackage(manifest, "main"), "references/frameworks.md", stateDir);
   assert.ok(reference.text.length > 0);
   assert.ok(manifest.files.some((file) => file.path === "LICENSE"));
   const cached = await importMimeograph(binding, stateDir, () => { throw new Error("Cached import must not use the network"); });

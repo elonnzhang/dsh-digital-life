@@ -5,6 +5,17 @@ import { digitalLifeHome } from "./identity.js";
 
 export interface DigitalLifeBinding {
   recordId: string;
+  /** Text before the identity. */
+  pre: string;
+  /** The identity file (AGENTS.md) verbatim. */
+  persona: string;
+  /** Text after the identity. */
+  suf: string;
+}
+
+/** Bindings saved before the prompt was split kept it as one text. */
+export interface LegacyDigitalLifeBinding {
+  recordId: string;
   prompt: string;
 }
 
@@ -14,7 +25,21 @@ function bindingPath(sessionId: string, stateDir?: string): string {
   return join(digitalLifeHome(process.env, stateDir), "sessions", `${sessionId}.json`);
 }
 
-export async function loadBinding(sessionId: string, stateDir?: string): Promise<DigitalLifeBinding | undefined> {
+function isBinding(value: object): value is DigitalLifeBinding {
+  const binding = value as DigitalLifeBinding;
+  return typeof binding.recordId === "string" && typeof binding.pre === "string" &&
+    typeof binding.persona === "string" && typeof binding.suf === "string";
+}
+
+function isLegacyBinding(value: object): value is LegacyDigitalLifeBinding {
+  const binding = value as LegacyDigitalLifeBinding;
+  return typeof binding.recordId === "string" && typeof binding.prompt === "string";
+}
+
+export async function loadBinding(
+  sessionId: string,
+  stateDir?: string,
+): Promise<DigitalLifeBinding | LegacyDigitalLifeBinding | undefined> {
   let content: string;
   try {
     content = await readFile(bindingPath(sessionId, stateDir), "utf8");
@@ -23,11 +48,9 @@ export async function loadBinding(sessionId: string, stateDir?: string): Promise
     throw error;
   }
   const value: unknown = JSON.parse(content);
-  if (typeof value !== "object" || value === null ||
-      typeof (value as DigitalLifeBinding).recordId !== "string" ||
-      typeof (value as DigitalLifeBinding).prompt !== "string")
+  if (typeof value !== "object" || value === null || !(isBinding(value) || isLegacyBinding(value)))
     throw new Error(`digital-life: invalid binding for session "${sessionId}"`);
-  return value as DigitalLifeBinding;
+  return value;
 }
 
 export async function saveBinding(sessionId: string, binding: DigitalLifeBinding, stateDir?: string): Promise<void> {

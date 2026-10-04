@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import { digitalLifeHome } from "./identity.js";
@@ -7,12 +7,15 @@ import {
   MIMEOGRAPHS_REVISION,
   type ExpertCatalogEntry,
   type ExpertPackageBinding,
+  type ExpertPackageLocation,
   type ExpertPackageManifest,
   type ExpertReference,
 } from "../expert-types.js";
 
 const REPOSITORY = "K-Dense-AI/mimeographs";
 const REVISION = /^[a-f0-9]{40}$/;
+/** Branch, tag, or abbreviated commit as typed by the user. */
+const REF = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/;
 const REFERENCE = /^references\/[a-z0-9][a-z0-9-]*\.md$/;
 const MAX_FILE_BYTES = 256 * 1024;
@@ -27,17 +30,27 @@ export function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function validatePackageBinding(binding: ExpertPackageBinding): void {
-  if (binding.source !== "mimeographs" || !SLUG.test(binding.slug) || !REVISION.test(binding.revision))
+function validRef(value: string): boolean {
+  return REF.test(value) && !value.includes("..") && !value.endsWith("/") && !value.endsWith(".lock");
+}
+
+function validatePackageLocation(location: ExpertPackageLocation): void {
+  if (location.source !== "mimeographs" || !SLUG.test(location.slug) || !REVISION.test(location.revision))
     throw new Error("digital-life: invalid expert package; use a slug and a full lowercase commit SHA");
 }
 
-export function packageAgentBinding(binding: ExpertPackageBinding): string {
-  validatePackageBinding(binding);
+export function validatePackageBinding(binding: ExpertPackageBinding): void {
+  validatePackageLocation(binding);
+  if (typeof binding.ref !== "string" || !validRef(binding.ref))
+    throw new Error("digital-life: invalid expert package; a branch or tag is required");
+}
+
+export function packageAgentBinding(binding: ExpertPackageLocation): string {
+  validatePackageLocation(binding);
   return `.expert-packages/mimeographs/${binding.revision}/${binding.slug}/AGENTS.md`;
 }
 
-function packageRoot(binding: ExpertPackageBinding, stateDir?: string): string {
+function packageRoot(binding: ExpertPackageLocation, stateDir?: string): string {
   return dirname(join(digitalLifeHome(process.env, stateDir), packageAgentBinding(binding)));
 }
 
@@ -73,11 +86,110 @@ async function fetchText(path: string, revision: string, fetcher: typeof fetch):
   return text;
 }
 
+/** Lookup caches sit beside the commit directories; their names can never be a 40-character SHA. */
+function cacheRoot(home: string): string {
+  return join(home, ".expert-packages", "mimeographs");
+}
+
+async function readCached(path: string): Promise<string | undefined> {
+  try {
+    if ((await lstat(path)).size > MAX_FILE_BYTES) return undefined;
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/** Write through a sibling temporary file so readers never see a partial cache entry. */
+async function writeCached(path: string, text: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, text, { encoding: "utf8", mode: 0o600 });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+async function cachedRefs(home: string): Promise<Record<string, string>> {
+  try {
+    const value: unknown = JSON.parse((await readCached(join(cacheRoot(home), "refs.json"))) ?? "{}");
+    return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Resolve a branch or tag to the commit it points to now; downloads and storage use that commit.
+ * With `home`, each lookup is remembered so an unreachable GitHub falls back to the last known commit.
+ * @returns The lowercase 40-character commit SHA, and whether it came from the local cache.
+ */
+export async function resolveRevision(
+  ref: string,
+  fetcher: typeof fetch = fetch,
+  home?: string,
+): Promise<{ revision: string; cached: boolean }> {
+  const value = ref.trim();
+  if (!validRef(value)) throw new Error("digital-life: invalid version; use a branch or tag");
+  const path = value.split("/").map(encodeURIComponent).join("/");
+  let response: Response;
+  try {
+    response = await fetcher(`https://api.github.com/repos/${REPOSITORY}/commits/${path}`, {
+      headers: { Accept: "application/vnd.github.sha" },
+      signal: AbortSignal.timeout(20_000),
+      redirect: "error",
+    });
+  } catch (error) {
+    const known = home === undefined ? undefined : (await cachedRefs(home))[value];
+    if (known !== undefined && REVISION.test(known)) return { revision: known, cached: true };
+    throw error;
+  }
+  if (response.status === 404 || response.status === 422) throw new Error(`digital-life: version not found: ${value}`);
+  if (!response.ok) {
+    // Rate limits and outages are transient; a previously resolved commit is still a valid pin.
+    const known = home === undefined ? undefined : (await cachedRefs(home))[value];
+    if (known !== undefined && REVISION.test(known)) return { revision: known, cached: true };
+    throw new Error(`digital-life: version lookup failed (${response.status}): ${value}`);
+  }
+  const sha = (await response.text()).trim().toLowerCase();
+  if (!REVISION.test(sha)) throw new Error(`digital-life: version lookup returned an invalid commit: ${value}`);
+  if (home !== undefined) {
+    const refs = await cachedRefs(home);
+    if (refs[value] !== sha) await writeCached(join(cacheRoot(home), "refs.json"), JSON.stringify({ ...refs, [value]: sha }, null, 2));
+  }
+  return { revision: sha, cached: false };
+}
+
+/**
+ * Load and validate the expert catalog at one commit.
+ * With `home`, the catalog is cached per commit; a commit never changes, so the cache never expires.
+ */
 export async function loadExpertCatalog(
   revision = MIMEOGRAPHS_REVISION,
   fetcher: typeof fetch = fetch,
+  home?: string,
 ): Promise<ExpertCatalogEntry[]> {
-  const data: unknown = JSON.parse(await fetchText("catalog.json", revision, fetcher));
+  if (!REVISION.test(revision)) throw new Error("digital-life: a full commit SHA is required");
+  const cachePath = home === undefined ? undefined : join(cacheRoot(home), "catalogs", `${revision}.json`);
+  const cached = cachePath === undefined ? undefined : await readCached(cachePath);
+  if (cached !== undefined) {
+    try {
+      return parseCatalog(cached);
+    } catch {
+      // A damaged cache entry is replaced by a fresh download below.
+    }
+  }
+  const text = await fetchText("catalog.json", revision, fetcher);
+  const experts = parseCatalog(text);
+  if (cachePath !== undefined) await writeCached(cachePath, text);
+  return experts;
+}
+
+function parseCatalog(text: string): ExpertCatalogEntry[] {
+  const data: unknown = JSON.parse(text);
   if (typeof data !== "object" || data === null || !Array.isArray((data as { experts?: unknown }).experts))
     throw new Error("digital-life: invalid expert catalog");
   const experts = (data as { experts: unknown[] }).experts;
@@ -105,7 +217,7 @@ export async function loadExpertCatalog(
   });
 }
 
-export async function loadExpertPackage(binding: ExpertPackageBinding, stateDir?: string): Promise<ExpertPackageManifest> {
+export async function loadExpertPackage(binding: ExpertPackageLocation, stateDir?: string): Promise<ExpertPackageManifest> {
   const root = packageRoot(binding, stateDir);
   if ((await lstat(root)).isSymbolicLink()) throw new Error("digital-life: symlinked expert packages are not supported");
   const raw = await readFile(join(root, "manifest.json"), "utf8");
@@ -137,16 +249,16 @@ async function verifiedFile(manifest: ExpertPackageManifest, path: string, state
   return text;
 }
 
-export async function readPackageIdentity(binding: ExpertPackageBinding, stateDir?: string): Promise<string> {
+export async function readPackageIdentity(binding: ExpertPackageLocation, stateDir?: string): Promise<string> {
   return verifiedFile(await loadExpertPackage(binding, stateDir), "AGENTS.md", stateDir);
 }
 
 export async function importMimeograph(
-  binding: ExpertPackageBinding,
+  binding: ExpertPackageLocation,
   stateDir?: string,
   fetcher: typeof fetch = fetch,
 ): Promise<ExpertPackageManifest> {
-  validatePackageBinding(binding);
+  validatePackageLocation(binding);
   try {
     const existing = await loadExpertPackage(binding, stateDir);
     await Promise.all(existing.files.map((file) => verifiedFile(existing, file.path, stateDir)));
@@ -161,7 +273,7 @@ export async function importMimeograph(
       if ((missing as NodeJS.ErrnoException).code !== "ENOENT") throw missing;
     }
   }
-  const expert = (await loadExpertCatalog(binding.revision, fetcher)).find((entry) => entry.slug === binding.slug);
+  const expert = (await loadExpertCatalog(binding.revision, fetcher, digitalLifeHome(process.env, stateDir))).find((entry) => entry.slug === binding.slug);
   if (expert === undefined) throw new Error(`digital-life: unknown upstream expert ${binding.slug}`);
   const paths = ["AGENTS.md", "SKILL.md", "LICENSE", ...expert.references];
   const contents = await Promise.all(paths.map(async (path) => ({
@@ -170,7 +282,9 @@ export async function importMimeograph(
   })));
   const manifest: ExpertPackageManifest = {
     schemaVersion: 1,
-    ...binding,
+    source: binding.source,
+    slug: binding.slug,
+    revision: binding.revision,
     name: expert.name,
     description: expert.description,
     category: expert.category,
@@ -203,8 +317,13 @@ export async function importMimeograph(
   }
 }
 
-export function recordForPackage(manifest: ExpertPackageManifest): DigitalLifeRecord {
-  const expertPackage: ExpertPackageBinding = { source: manifest.source, slug: manifest.slug, revision: manifest.revision };
+/**
+ * Build the settings record for an imported package.
+ * @param ref Branch or tag the package was imported from.
+ */
+export function recordForPackage(manifest: ExpertPackageManifest, ref: string): DigitalLifeRecord {
+  const expertPackage: ExpertPackageBinding = { source: manifest.source, slug: manifest.slug, revision: manifest.revision, ref };
+  validatePackageBinding(expertPackage);
   return {
     id: `mimeograph-${manifest.slug}`,
     name: manifest.name,

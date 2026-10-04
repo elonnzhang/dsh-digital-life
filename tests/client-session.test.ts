@@ -10,6 +10,7 @@ import { MIMEOGRAPHS_REVISION } from "../src/expert-types.js";
 vi.mock("../src/client/ChatPanel.js", () => ({ ChatPanel: () => null }));
 vi.mock("../src/client/AgentPresetSelector.js", () => ({ AgentPresetSelector: () => null }));
 vi.mock("../src/client/DigitalLifeSettingSection.js", () => ({ DigitalLifeSettingSection: () => null }));
+vi.mock("@deepseek-ai/dsh-client-ui-primitives", () => ({ IconUserOutlineRegular: () => null, IconUsersOutlineMedium: () => null }));
 
 const { apply, inject } = await import("../src/client/index.js");
 
@@ -112,7 +113,7 @@ function setup(
             if (endpoint === "binding") return { ok: true, value: undefined };
             if (endpoint === "expert/import") return { ok: true, value: { record: {
               ...record, id: "mimeograph-test-expert", name: "Imported expert",
-              expertPackage: { source: "mimeographs", slug: "test-expert", revision: MIMEOGRAPHS_REVISION },
+              expertPackage: { source: "mimeographs", slug: "test-expert", revision: MIMEOGRAPHS_REVISION, ref: "main" },
             } } };
             return { ok: true, value: {} };
           },
@@ -186,17 +187,17 @@ function setup(
 describe("digital-life standalone sessions", () => {
   it("imports an expert without replacing other records", async () => {
     const fixture = setup([]);
-    await fixture.expertApi.importExpert("test-expert", MIMEOGRAPHS_REVISION);
+    await fixture.expertApi.importExpert("test-expert", "main");
     expect(fixture.records).toHaveLength(2);
     expect(fixture.records[0]).toBe(record);
-    expect(fixture.records[1]?.expertPackage?.revision).toBe(MIMEOGRAPHS_REVISION);
+    expect(fixture.records[1]?.expertPackage?.ref).toBe("main");
   });
 
   it("preserves edits and disabled state on repeated import", async () => {
     const existing: DigitalLifeRecord = { ...record, name: "User customized", enabled: false,
-      expertPackage: { source: "mimeographs", slug: "test-expert", revision: MIMEOGRAPHS_REVISION } };
+      expertPackage: { source: "mimeographs", slug: "test-expert", revision: MIMEOGRAPHS_REVISION, ref: "main" } };
     const fixture = setup([], { records: [existing] });
-    expect(await fixture.expertApi.importExpert("test-expert", MIMEOGRAPHS_REVISION)).toBe(existing.id);
+    expect(await fixture.expertApi.importExpert("test-expert", "main")).toBe(existing.id);
     expect(fixture.records).toEqual([existing]);
     expect(fixture.calls).not.toContain("expert/import");
     expect(fixture.calls).not.toContain("save-records");
@@ -205,8 +206,8 @@ describe("digital-life standalone sessions", () => {
   it("gives a conflicting imported version a separate record ID", async () => {
     const existing = { ...record, id: "mimeograph-test-expert", name: "User record" };
     const fixture = setup([], { records: [existing] });
-    const id = await fixture.expertApi.importExpert("test-expert", MIMEOGRAPHS_REVISION);
-    expect(id).toBe(`mimeograph-test-expert-${MIMEOGRAPHS_REVISION.slice(0, 8)}`);
+    const id = await fixture.expertApi.importExpert("test-expert", "release/v1.0");
+    expect(id).toBe("mimeograph-test-expert-release-v1-0");
     expect(fixture.records[0]).toEqual(existing);
   });
 
@@ -215,7 +216,9 @@ describe("digital-life standalone sessions", () => {
     const fixture = setup([{ id: "digital-life-mode" }], { records: [record, reviewer] });
     await fixture.expertApi.startReview({ question: "Review this plan", expertIds: [record.id], reviewerId: reviewer.id });
     expect(fixture.calls).toEqual(["project", "create", "list", "select:digital-life-mode", "bind", "open", "prompt", "release"]);
-    expect(JSON.stringify(fixture.promptContent)).toContain("review_expert_plan");
+    // The `t` mock echoes locale keys, so the submission carries the instruction key.
+    // The real instruction text that names review_expert_plan is covered by locales.test.ts.
+    expect(JSON.stringify(fixture.promptContent)).toContain("reviewRequestInstruction");
     expect(JSON.stringify(fixture.promptContent)).toContain("Review this plan");
   });
 

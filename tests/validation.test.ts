@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Config, independentSystemPromptFor, promptFor, validateSettings } from '../src/index.js'
+import { Config, independentSystemPromptFor, independentSystemPromptPartsFor, promptFor, validateSettings } from '../src/index.js'
 import type { DigitalLifeRecord } from '../src/types.js'
 
 const record: DigitalLifeRecord = {
@@ -29,6 +29,16 @@ describe('digital-life configuration', () => {
     expect(() => { validateSettings({ records }) }).not.toThrow()
   })
 
+  it('accepts expert packages imported before the branch or tag was recorded', () => {
+    const revision = 'a38f5fcad0853be3e98a6cd95d8e6bf8c66f7c7b'
+    const legacy = {
+      ...record, persona: '', agent: `.expert-packages/mimeographs/${revision}/steve-jobs/AGENTS.md`,
+      expertPackage: { source: 'mimeographs', slug: 'steve-jobs', revision },
+    }
+    const records = Config({ records: [legacy] }).records.get()
+    expect(() => { validateSettings({ records }) }).not.toThrow()
+  })
+
   it('rejects duplicate and malformed ids', () => {
     expect(() => { validateSettings({ records: [record, record] }) }).toThrow(/duplicate id/)
     expect(() => { validateSettings({ records: [{ ...record, id: 'Bad ID' }] }) }).toThrow(/must match/)
@@ -39,11 +49,36 @@ describe('digital-life configuration', () => {
     expect(() => { validateSettings({ maxBatchSize: 0, records: [] }) }).toThrow(/must be positive/)
   })
 
-  it('builds a focused persona prompt', () => {
+  it('builds a focused consultation prompt without repeating the persona', () => {
     const prompt = promptFor(record, '下一步做什么？')[0]
     expect(prompt).toMatchObject({ type: 'text' })
-    expect(prompt.type === 'text' && prompt.text).toContain('创业导师')
-    expect(prompt.type === 'text' && prompt.text).toContain('下一步做什么？')
+    const text = prompt.type === 'text' ? prompt.text : ''
+    expect(text).toContain('创业导师')
+    expect(text).toContain('主领域：企业')
+    expect(text).toContain('简介：创业战略与现金流')
+    expect(text).toContain('<question>\n下一步做什么？\n</question>')
+    expect(text).not.toContain(record.persona)
+    expect(text).toContain('不要调用 consult_digital_life')
+  })
+
+  it('wraps the identity and localizes the domain in the session prompt', () => {
+    const prompt = independentSystemPromptFor(record, '  身份正文  ')
+    expect(prompt).toContain('身份正文')
+    expect(prompt).toContain('主领域：企业')
+    expect(prompt).not.toContain('business')
+    expect(independentSystemPromptFor({ ...record, category: 'custom', customCategory: '' })).not.toContain('主领域')
+  })
+
+  it('keeps the identity file as a section of its own', () => {
+    const parts = independentSystemPromptPartsFor(record, '  # AGENTS\n身份正文  ')
+    expect(parts.persona).toBe('# AGENTS\n身份正文')
+    expect(parts.pre).toContain(`# 数字生命：${record.name}`)
+    expect(parts.pre).toContain('主领域：企业')
+    expect(parts.pre).not.toContain('身份正文')
+    expect(parts.suf).toContain('## 对话方式')
+    expect(parts.suf).toContain('## 协作')
+    expect(parts.suf).not.toContain('身份正文')
+    expect(independentSystemPromptFor(record, '  # AGENTS\n身份正文  ')).toBe([parts.pre, parts.persona, parts.suf].join('\n\n'))
   })
 
   it('routes mentions of other digital lives through consultation tools', () => {
@@ -60,4 +95,33 @@ it('accepts an agent file instead of inline persona', () => {
   expect(() => {
     validateSettings({ records: [{ ...record, persona: '', agent: '~/.agent/agents/mentor.md' }] })
   }).not.toThrow()
+})
+
+describe('digital-life expert teams', () => {
+  const team = { id: 'plan-review', name: '方案评审', purpose: '', analystIds: ['a', 'b'], reviewerId: 'c' }
+
+  it('parses teams with defaults and accepts a valid lineup', () => {
+    const teams = Config({ teams: [{ id: 't', name: 'T', analystIds: ['a'], reviewerId: 'b' }] }).teams.get()
+    expect(teams[0]).toMatchObject({ purpose: '', analystIds: ['a'], reviewerId: 'b' })
+    expect(Config({}).teams.get()).toEqual([])
+    expect(() => { validateSettings({ teams: [team] }) }).not.toThrow()
+  })
+
+  it('does not require team members to exist as records', () => {
+    expect(() => { validateSettings({ records: [], teams: [team] }) }).not.toThrow()
+  })
+
+  it('rejects malformed team ids, names and duplicates', () => {
+    expect(() => { validateSettings({ teams: [{ ...team, id: 'Bad' }] }) }).toThrow(/team id/)
+    expect(() => { validateSettings({ teams: [team, team] }) }).toThrow(/duplicate team id/)
+    expect(() => { validateSettings({ teams: [{ ...team, name: ' ' }] }) }).toThrow(/team name/)
+  })
+
+  it('enforces 1-3 unique analysts and a separate reviewer', () => {
+    expect(() => { validateSettings({ teams: [{ ...team, analystIds: [] }] }) }).toThrow(/1-3 unique/)
+    expect(() => { validateSettings({ teams: [{ ...team, analystIds: ['a', 'b', 'd', 'e'] }] }) }).toThrow(/1-3 unique/)
+    expect(() => { validateSettings({ teams: [{ ...team, analystIds: ['a', 'a'] }] }) }).toThrow(/1-3 unique/)
+    expect(() => { validateSettings({ teams: [{ ...team, reviewerId: 'a' }] }) }).toThrow(/reviewer/)
+    expect(() => { validateSettings({ teams: [{ ...team, reviewerId: '' }] }) }).toThrow(/reviewer/)
+  })
 })

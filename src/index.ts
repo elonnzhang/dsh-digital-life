@@ -2,6 +2,7 @@ export {
   apply,
   Config,
   independentSystemPromptFor,
+  independentSystemPromptPartsFor,
   inject,
   name,
   promptFor,

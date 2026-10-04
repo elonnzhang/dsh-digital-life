@@ -9,6 +9,7 @@ import type { ReviewReport, ReviewRun } from "../src/expert-types.js";
 import type { DigitalLifeRecord } from "../src/types.js";
 import { createExpertService } from "../src/host/expert-service.js";
 import { readReviewRun, saveReviewRun } from "../src/host/review.js";
+import { packageBinding, packageFetcher } from "./expert-fixture.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -39,6 +40,22 @@ async function fixture(structured = true) {
 }
 
 describe("expert Host service", () => {
+  it("lists and imports experts by branch, keeping the commit internal", async () => {
+    const f = await fixture();
+    const files = packageFetcher();
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) =>
+      String(input).startsWith("https://api.github.com/") ? new Response(packageBinding.revision) : files(input, init)));
+    try {
+      expect(await f.service.rpc("expert/catalog", { ref: " main " })).toMatchObject({
+        ok: true, value: { ref: "main", cached: false, experts: [{ slug: "test-expert" }] },
+      });
+      const imported = await f.service.rpc("expert/import", { slug: "test-expert", ref: "main" });
+      expect(imported).toMatchObject({ ok: true, value: { record: { expertPackage: { ...packageBinding, ref: "main" } } } });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("registers real tool definitions and delegates isolated, structured stages", async () => {
     const f = await fixture();
     expect([...f.registered.keys()]).toEqual(["read_expert_reference", "review_expert_plan", "read_expert_review"]);
@@ -103,7 +120,8 @@ describe("expert Host service", () => {
     const f = await fixture();
     expect(await f.service.rpc("review/read", null)).toMatchObject({ ok: false });
     expect(await f.service.rpc("review/read", { id: "../private" })).toMatchObject({ ok: false });
-    expect(await f.service.rpc("expert/catalog", { revision: "main" })).toMatchObject({ ok: false });
+    expect(await f.service.rpc("expert/catalog", { ref: "../main" })).toMatchObject({ ok: false });
+    expect(await f.service.rpc("expert/import", { slug: "test-expert", ref: "feature/" })).toMatchObject({ ok: false });
     expect(await f.service.rpc("review/cancel", { id: "missing" })).toMatchObject({ ok: false });
   });
 });

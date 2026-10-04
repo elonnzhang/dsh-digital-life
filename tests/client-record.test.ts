@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeDigitalLifeRecord } from "../src/client/DigitalLifeSettingSection.js";
+import { normalizeDigitalLifeRecord } from "../src/client/records.js";
 import { validateSettings } from "../src/index.js";
 import type { DigitalLifeRecord } from "../src/types.js";
 

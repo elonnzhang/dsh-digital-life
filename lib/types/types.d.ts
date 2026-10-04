@@ -1,5 +1,5 @@
 import { DIGITAL_LIFE_CATEGORIES } from "./constants.js";
-import type { ExpertPackageBinding } from "./expert-types.js";
+import type { ExpertPackageBinding, ExpertTeam } from "./expert-types.js";
 export type DigitalLifeCategory = (typeof DIGITAL_LIFE_CATEGORIES)[number];
 export interface DigitalLifeRecord {
     id: string;
@@ -23,7 +23,7 @@ export interface DigitalLifeRecord {
         model?: string;
     };
     /** Immutable upstream package; user configuration remains separate. */
-    expertPackage?: ExpertPackageBinding;
+    expertPackage?: ExpertPackageBinding | undefined;
     enabled: boolean;
 }
 export interface DigitalLifeSettings {
@@ -32,6 +32,8 @@ export interface DigitalLifeSettings {
     /** Optional plugin state directory. Defaults to ~/.dsh/digital-life. */
     stateDir?: string;
     records?: DigitalLifeRecord[];
+    /** Saved review lineups referencing record ids. */
+    teams?: ExpertTeam[];
 }
 export interface ResolvedDigitalLifeSettings {
     provider: string;

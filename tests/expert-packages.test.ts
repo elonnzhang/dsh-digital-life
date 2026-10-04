@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile, symlink, readdir } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { importMimeograph, loadExpertCatalog, packageAgentBinding, readExpertReference, recordForPackage } from "../src/host/expert-packages.js";
+import { importMimeograph, loadExpertCatalog, packageAgentBinding, readExpertReference, recordForPackage, resolveRevision } from "../src/host/expert-packages.js";
 import { digitalLifeHome, identityFor, reconcileIdentities } from "../src/host/identity.js";
 import { validateSettings } from "../src/host/index.js";
 import { packageBinding, packageFetcher } from "./expert-fixture.js";
@@ -23,7 +23,7 @@ describe("versioned expert packages", () => {
       expect(String(url)).toContain(`/${packageBinding.revision}/`);
       expect(String(url)).not.toMatch(/avatar|_workspace/);
     }
-    const record = recordForPackage(manifest);
+    const record = recordForPackage(manifest, "main");
     expect(() => validateSettings({ records: [record] })).not.toThrow();
     expect(record.agent).toBe(packageAgentBinding(packageBinding));
     expect(await identityFor(record, stateDir)).toContain("Separate evidence");
@@ -52,6 +52,50 @@ describe("versioned expert packages", () => {
     await expect(loadExpertCatalog(packageBinding.revision, packageFetcher({ references: ["references/../../private.md"] }))).rejects.toThrow(/reference list/);
   });
 
+  it("resolves branches and tags to a full commit SHA", async () => {
+    const sha = packageBinding.revision;
+    const lookup = vi.fn<typeof fetch>(async (input) =>
+      String(input).endsWith("/commits/v1.0") ? new Response(`${sha.toUpperCase()}\n`) : new Response("missing", { status: 422 }));
+    expect(await resolveRevision(" v1.0 ", lookup)).toEqual({ revision: sha, cached: false });
+    expect(lookup.mock.calls[0]?.[0]).toBe("https://api.github.com/repos/K-Dense-AI/mimeographs/commits/v1.0");
+    await expect(resolveRevision("nope", lookup)).rejects.toThrow(/version not found/);
+    const untouched = vi.fn<typeof fetch>();
+    await expect(resolveRevision("../main", untouched)).rejects.toThrow(/invalid version/);
+    await expect(resolveRevision("feature/", untouched)).rejects.toThrow(/invalid version/);
+    expect(untouched).not.toHaveBeenCalled();
+    const bogus = vi.fn<typeof fetch>(async () => new Response("<html>"));
+    await expect(resolveRevision("main", bogus)).rejects.toThrow(/invalid commit/);
+  });
+
+  it("falls back to the last resolved commit when GitHub is unreachable", async () => {
+    const home = await root();
+    const sha = packageBinding.revision;
+    await resolveRevision("main", vi.fn<typeof fetch>(async () => new Response(sha)), home);
+    const offline = vi.fn<typeof fetch>(() => Promise.reject(new Error("offline")));
+    expect(await resolveRevision("main", offline, home)).toEqual({ revision: sha, cached: true });
+    const limited = vi.fn<typeof fetch>(async () => new Response("rate limited", { status: 403 }));
+    expect(await resolveRevision("main", limited, home)).toEqual({ revision: sha, cached: true });
+    await expect(resolveRevision("other", offline, home)).rejects.toThrow(/offline/);
+    await expect(resolveRevision("main", offline)).rejects.toThrow(/offline/);
+  });
+
+  it("caches the catalog per commit and reuses it offline", async () => {
+    const home = await root();
+    const online = packageFetcher();
+    const first = await loadExpertCatalog(packageBinding.revision, online, home);
+    expect(online).toHaveBeenCalledTimes(1);
+    const offline = vi.fn<typeof fetch>(() => Promise.reject(new Error("offline")));
+    expect(await loadExpertCatalog(packageBinding.revision, offline, home)).toEqual(first);
+    expect(offline).not.toHaveBeenCalled();
+    const path = join(home, ".expert-packages", "mimeographs", "catalogs", `${packageBinding.revision}.json`);
+    await writeFile(path, "{broken");
+    const refetch = packageFetcher();
+    expect(await loadExpertCatalog(packageBinding.revision, refetch, home)).toEqual(first);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(await readFile(path, "utf8"))).toHaveProperty("experts");
+    await expect(loadExpertCatalog("main", offline, home)).rejects.toThrow(/commit SHA/);
+  });
+
   it("does not leave a package behind after a failed download", async () => {
     const stateDir = await root();
     await expect(importMimeograph(packageBinding, stateDir, packageFetcher({ fail: "mimeographs/test-expert/SKILL.md" }))).rejects.toThrow(/download failed/);
@@ -60,7 +104,7 @@ describe("versioned expert packages", () => {
 
   it("rejects modified identity and undeclared or escaping reference files", async () => {
     const stateDir = await root();
-    const record = recordForPackage(await importMimeograph(packageBinding, stateDir, packageFetcher()));
+    const record = recordForPackage(await importMimeograph(packageBinding, stateDir, packageFetcher()), "main");
     await expect(readExpertReference(record, "../settings.yaml", stateDir)).rejects.toThrow(/references/);
     await expect(readExpertReference(record, "references/unknown.md", stateDir)).rejects.toThrow(/manifest/);
     const identity = join(digitalLifeHome(process.env, stateDir), record.agent!);
@@ -83,8 +127,20 @@ describe("versioned expert packages", () => {
     expect(await readdir(parent)).toEqual([packageBinding.slug]);
   });
 
+  it("records the branch or tag a package was imported from", async () => {
+    const manifest = await importMimeograph(packageBinding, await root(), packageFetcher());
+    const record = recordForPackage(manifest, "main");
+    expect(record.expertPackage).toEqual({ ...packageBinding, ref: "main" });
+    expect(record.agent).toBe(packageAgentBinding(packageBinding));
+    expect(() => validateSettings({ records: [record] })).not.toThrow();
+    expect(() => recordForPackage(manifest, "../main")).toThrow(/branch or tag/);
+    const { ref: _ref, ...commitOnly } = record.expertPackage!;
+    expect(() => validateSettings({ records: [{ ...record, expertPackage: commitOnly as typeof record.expertPackage }] })).not.toThrow();
+    expect(() => validateSettings({ records: [{ ...record, expertPackage: { ...commitOnly, ref: "../main" } }] })).toThrow(/branch or tag/);
+  });
+
   it("does not relabel a different identity as the imported package", async () => {
     const manifest = await importMimeograph(packageBinding, await root(), packageFetcher());
-    expect(() => validateSettings({ records: [{ ...recordForPackage(manifest), agent: "/tmp/other.md" }] })).toThrow(/immutable package/);
+    expect(() => validateSettings({ records: [{ ...recordForPackage(manifest, "main"), agent: "/tmp/other.md" }] })).toThrow(/immutable package/);
   });
 });

@@ -5,7 +5,25 @@ export const MIMEOGRAPHS_REVISION = "a38f5fcad0853be3e98a6cd95d8e6bf8c66f7c7b";
 export interface ExpertPackageBinding {
   source: "mimeographs";
   slug: string;
+  /** Commit the files are stored and verified under; internal, never shown to the user. */
   revision: string;
+  /** Branch or tag the user imported from; this is the version shown to the user. */
+  ref: string;
+}
+
+/** Where an imported package is stored; the branch or tag it came from is not part of it. */
+export type ExpertPackageLocation = Omit<ExpertPackageBinding, "ref">;
+
+/** A saved review lineup: 1–3 analysts critiqued and synthesized by one reviewer. */
+export interface ExpertTeam {
+  id: string;
+  name: string;
+  /** What this lineup is meant to review; shown to the user only. */
+  purpose: string;
+  /** 1–3 unique record ids. */
+  analystIds: string[];
+  /** Record id; never one of the analysts. */
+  reviewerId: string;
 }
 
 export interface ExpertCatalogEntry {
@@ -16,7 +34,7 @@ export interface ExpertCatalogEntry {
   references: string[];
 }
 
-export interface ExpertPackageManifest extends ExpertPackageBinding {
+export interface ExpertPackageManifest extends ExpertPackageLocation {
   schemaVersion: 1;
   name: string;
   description: string;

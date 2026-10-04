@@ -114,7 +114,7 @@ describe("fixed expert review workflow", () => {
 
   it("snapshots actual supplied reference excerpts and restricts citation IDs per step", async () => {
     const options = await setup();
-    const imported = recordForPackage(await importMimeograph(packageBinding, options.stateDir, packageFetcher()));
+    const imported = recordForPackage(await importMimeograph(packageBinding, options.stateDir, packageFetcher()), "main");
     options.records = [imported, records[1]!, records[2]!];
     options.request.expertIds = [imported.id, "beta"];
     let methodId = "";
@@ -136,7 +136,7 @@ describe("fixed expert review workflow", () => {
     expect(run.status).toBe("partial");
     expect(run.evidence[0]?.text).toContain("Compare alternatives");
     expect(run.steps[1]?.error).toContain("not supplied");
-    expect(run.experts[0]?.expertPackage).toEqual(packageBinding);
+    expect(run.experts[0]?.expertPackage).toEqual({ ...packageBinding, ref: "main" });
   });
 
   it("rejects invented citations, unsupported output fields and unsupported observations", () => {

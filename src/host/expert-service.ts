@@ -2,10 +2,12 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { defineTool, type ToolExecution } from "@deepseek-ai/dsh-tools";
 import type { DigitalLifeRecord, ResolvedDigitalLifeSettings } from "../types.js";
 import type { ReviewRequest, ReviewRun } from "../expert-types.js";
-import { MIMEOGRAPHS_REVISION } from "../expert-types.js";
 import { digitalLifeHome } from "./identity.js";
-import { importMimeograph, loadExpertCatalog, loadExpertPackage, readExpertReference, recordForPackage } from "./expert-packages.js";
+import { importMimeograph, loadExpertCatalog, loadExpertPackage, readExpertReference, recordForPackage, resolveRevision } from "./expert-packages.js";
 import { listReviewRuns, readReviewRun, renderReviewMarkdown, REVIEW_OUTPUT_SCHEMA, runExpertReview, saveReviewRun, validateReviewRequest } from "./review.js";
+
+/** Branch used when the client does not name one. */
+const DEFAULT_REF = "main";
 
 interface Options {
   current: () => ResolvedDigitalLifeSettings;
@@ -161,12 +163,16 @@ export function createExpertService(options: Options) {
         const stateDir = options.stateDir();
         let value: unknown;
         if (endpoint === "expert/catalog") {
-          const revision = input.revision === undefined ? MIMEOGRAPHS_REVISION : string(input.revision, "revision");
-          value = { revision, experts: await loadExpertCatalog(revision) };
+          // Branches and tags move; the catalog is read from the commit the ref points to right now.
+          const ref = input.ref === undefined ? DEFAULT_REF : string(input.ref, "ref").trim();
+          const home = digitalLifeHome(process.env, stateDir);
+          const { revision, cached } = await resolveRevision(ref, fetch, home);
+          value = { ref, cached, experts: await loadExpertCatalog(revision, fetch, home) };
         } else if (endpoint === "expert/import") {
-          const revision = input.revision === undefined ? MIMEOGRAPHS_REVISION : string(input.revision, "revision");
+          const ref = input.ref === undefined ? DEFAULT_REF : string(input.ref, "ref").trim();
+          const { revision } = await resolveRevision(ref, fetch, digitalLifeHome(process.env, stateDir));
           const manifest = await importMimeograph({ source: "mimeographs", slug: string(input.slug, "slug"), revision }, stateDir);
-          value = { manifest, record: recordForPackage(manifest) };
+          value = { manifest, record: recordForPackage(manifest, ref) };
         } else if (endpoint === "review/list") {
           const summaries = await listReviewRuns(stateDir);
           for (const summary of summaries) {
