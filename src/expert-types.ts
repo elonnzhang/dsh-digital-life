@@ -28,6 +28,8 @@ export interface ExpertTeam {
   coordinatorId?: string;
   /** Member id → responsibility (1–200 characters); members without one do 综合分析. */
   responsibilities?: Record<string, string>;
+  /** Identity of the team's own session host (1–8000 characters); a neutral default when omitted. */
+  persona?: string;
 }
 
 export interface ExpertCatalogEntry {

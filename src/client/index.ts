@@ -107,9 +107,12 @@ export function apply(ctx: ClientContext): void {
     },
     async startReview(request) {
       const available = records();
-      const record = available.find((item) => item.id === request.expertIds[0]);
-      if (record === undefined || !available.some((item) => item.id === request.reviewerId)) throw new Error(t("chooseExpert"));
-      const { sessionId, reference } = await prepareSession(record);
+      if (![...request.expertIds, request.reviewerId].every((id) => available.some((item) => item.id === id)))
+        throw new Error(t("chooseExpert"));
+      // The session is hosted by the team itself, never by one of its members.
+      const { sessionId, reference } = await prepareSession(request.teamId === undefined
+        ? { lineup: { analystIds: request.expertIds, reviewerId: request.reviewerId } }
+        : { teamId: request.teamId });
       try {
         ctx.uiWorkspace.openSession(sessionId);
         const result = await reference.binding.session.prompt([{ type: "text", text: reviewSubmission(request, t("reviewRequestInstruction")) }], "queue");
@@ -154,7 +157,12 @@ export function apply(ctx: ClientContext): void {
       if (!selected.ok) throw new Error(selected.error.message);
     }
   };
-  const prepareSession = async (record?: DigitalLifeRecord) => {
+  /** Who a new session is bound to: a digital life, a saved team, or an ad-hoc lineup. */
+  type BindTarget =
+    | { recordId: string }
+    | { teamId: string }
+    | { lineup: { analystIds: string[]; reviewerId: string } };
+  const prepareSession = async (target?: BindTarget) => {
     const connection = ctx.get("connection") as ConnectionHandle | undefined;
     if (connection === undefined)
       throw new Error("digital-life: connection service is unavailable");
@@ -168,12 +176,9 @@ export function apply(ctx: ClientContext): void {
     const reference = sessions.retain(sessionId, { source: "digitalLife" });
     try {
       await reference.ready;
-      if (record !== undefined) {
+      if (target !== undefined) {
         await selectDigitalLifeMode(sessionId);
-        const init = await rpc.call("/digital-life", "bind", {
-          sessionId,
-          recordId: record.id,
-        });
+        const init = await rpc.call("/digital-life", "bind", { sessionId, ...target });
         if (!init.ok) throw new Error(init.error.message);
       }
       return { sessionId, reference };
@@ -183,7 +188,7 @@ export function apply(ctx: ClientContext): void {
     }
   };
   const openDigitalLifeSession: PrepareDigitalLifeSession = async (record) => {
-    const { sessionId, reference } = await prepareSession(record);
+    const { sessionId, reference } = await prepareSession({ recordId: record.id });
     try {
       ctx.uiWorkspace.openSession(sessionId);
       return sessionId;
@@ -192,7 +197,7 @@ export function apply(ctx: ClientContext): void {
     }
   };
   const createSession: ChatPanelInjected["createSession"] = async (record) => {
-    const { sessionId, reference } = await prepareSession(record);
+    const { sessionId, reference } = await prepareSession(record === undefined ? undefined : { recordId: record.id });
     try {
       const connection = ctx.get("connection") as ConnectionHandle | undefined;
       if (connection === undefined)

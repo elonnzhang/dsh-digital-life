@@ -42,6 +42,8 @@ function setup(
   let stagedHeroInjected: AgentPresetSelectorInjected | undefined;
   let createdCwd: string | undefined;
   const blocks: Array<{ sessionId: SessionId; reason?: string }> = [];
+  const bindPayloads: unknown[] = [];
+  let bindingValue: unknown = undefined;
   const conversation = {
     blocks: {
       set: (id: SessionId, block: { reason: string } | undefined) => {
@@ -108,10 +110,11 @@ function setup(
       conversation,
       connection: {
         rpc: {
-          call: async (_channel: string, endpoint: string) => {
+          call: async (_channel: string, endpoint: string, payload?: unknown) => {
             calls.push(endpoint);
+            if (endpoint === "bind") bindPayloads.push(payload);
             if (endpoint === "project") return { ok: true, value: { cwd: "/tmp/digital-life/projects/test" } };
-            if (endpoint === "binding") return { ok: true, value: undefined };
+            if (endpoint === "binding") return { ok: true, value: bindingValue };
             if (endpoint === "expert/import") return { ok: true, value: { record: {
               ...record, id: "mimeograph-test-expert", name: "Imported expert",
               expertPackage: { source: "mimeographs", slug: "test-expert", revision: MIMEOGRAPHS_REVISION, ref: "main" },
@@ -175,6 +178,10 @@ function setup(
     get blocks() {
       return blocks;
     },
+    bindPayloads,
+    setBinding(value: unknown) {
+      bindingValue = value;
+    },
     get createdCwd() {
       return createdCwd;
     },
@@ -222,6 +229,24 @@ describe("digital-life standalone sessions", () => {
     expect(JSON.stringify(fixture.promptContent)).toContain("reviewRequestInstruction");
     expect(JSON.stringify(fixture.promptContent)).toContain("Review this plan");
     expect(JSON.stringify(fixture.promptContent)).toContain("plan-review");
+    // The session is hosted by the team, not by its first analyst.
+    expect(fixture.bindPayloads).toEqual([{ sessionId: "session-1", teamId: "plan-review" }]);
+  });
+
+  it("hosts an ad-hoc review session by its lineup", async () => {
+    const reviewer = { ...record, id: "critic" };
+    const fixture = setup([{ id: "digital-life-mode" }], { records: [record, reviewer] });
+    await fixture.expertApi.startReview({ question: "Review this plan", expertIds: [record.id], reviewerId: reviewer.id });
+    expect(fixture.bindPayloads).toEqual([{ sessionId: "session-1", lineup: { analystIds: [record.id], reviewerId: reviewer.id } }]);
+  });
+
+  it("does not block a session hosted by an expert team", async () => {
+    const fixture = setup([{ id: "digital-life-mode" }]);
+    fixture.setBinding({ team: { id: "plan-review", name: "方案评审" } });
+    const selector = fixture.heroInjected;
+    if (selector === undefined) throw new Error("Hero selector was not injected");
+    await expect(selector.load()).resolves.toMatchObject({ current: "digital-life-mode", team: "方案评审" });
+    expect(fixture.blocks).toEqual([]);
   });
 
   it("declares the preset remote used by session creation and the selector", () => {

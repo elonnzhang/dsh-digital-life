@@ -57,14 +57,18 @@ export function normalizeTeam(draft: ExpertTeam): ExpertTeam {
     reviewerId,
     ...(coordinatorId === "" ? {} : { coordinatorId }),
     ...(Object.keys(responsibilities).length === 0 ? {} : { responsibilities }),
+    ...(draft.persona?.trim() ? { persona: draft.persona.trim() } : {}),
   };
 }
 
 /** Longest member responsibility the Host accepts. */
 export const RESPONSIBILITY_LIMIT = 200;
 
+/** Longest team persona the Host accepts. */
+export const TEAM_PERSONA_LIMIT = 8_000;
+
 /** Editor field that failed validation. */
-export type TeamField = "id" | "name" | "analystIds" | "reviewerId" | "responsibilities";
+export type TeamField = "id" | "name" | "analystIds" | "reviewerId" | "responsibilities" | "persona";
 
 /**
  * Check a normalized team before it is written.
@@ -79,7 +83,7 @@ export function teamError(
   teams: readonly ExpertTeam[],
   editingId: string | undefined,
   recordIds: readonly string[],
-): { field: TeamField; reason: "required" | "invalidId" | "duplicateId" | "idConflict" | "analystCount" | "responsibilityLength" } | undefined {
+): { field: TeamField; reason: "required" | "invalidId" | "duplicateId" | "idConflict" | "analystCount" | "responsibilityLength" | "teamPersonaLength" } | undefined {
   if (team.id === "") return { field: "id", reason: "required" };
   if (!ID_PATTERN.test(team.id)) return { field: "id", reason: "invalidId" };
   if (team.id !== editingId && teams.some((item) => item.id === team.id)) return { field: "id", reason: "duplicateId" };
@@ -91,6 +95,7 @@ export function teamError(
   if (team.reviewerId === "") return { field: "reviewerId", reason: "required" };
   if (Object.values(team.responsibilities ?? {}).some((duty) => duty.length > RESPONSIBILITY_LIMIT))
     return { field: "responsibilities", reason: "responsibilityLength" };
+  if ((team.persona?.length ?? 0) > TEAM_PERSONA_LIMIT) return { field: "persona", reason: "teamPersonaLength" };
   return undefined;
 }
 

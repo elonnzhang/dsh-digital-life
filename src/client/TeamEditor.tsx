@@ -4,7 +4,7 @@ import { Button, Checkbox, Input, Modal } from "@deepseek-ai/dsh-client-ui-primi
 import type { DigitalLifeRecord } from "../types.js";
 import type { ExpertTeam } from "../expert-types.js";
 import { MenuSelect } from "./controls.js";
-import { MAX_ANALYSTS, RESPONSIBILITY_LIMIT, normalizeTeam, suggestTeamId, teamError, type TeamField } from "./teams.js";
+import { MAX_ANALYSTS, RESPONSIBILITY_LIMIT, TEAM_PERSONA_LIMIT, normalizeTeam, suggestTeamId, teamError, type TeamField } from "./teams.js";
 import css from "./settings.module.css";
 
 const REASON_KEYS = {
@@ -14,6 +14,7 @@ const REASON_KEYS = {
   analystCount: "analystCount",
   idConflict: "teamIdConflict",
   responsibilityLength: "responsibilityLength",
+  teamPersonaLength: "teamPersonaLength",
 } as const;
 const BY_REVIEWER = "__reviewer__";
 
@@ -147,6 +148,20 @@ export function TeamEditor({
               update({ purpose: event.target.value });
             }}
           />
+        </label>
+        <label className={`${css.field} ${css.full}`}>
+          <span className={css.label}>{t("teamPersona")}</span>
+          <textarea
+            className={`${css.textarea} ${invalid === "persona" ? css.invalid : ""}`}
+            rows={6}
+            maxLength={TEAM_PERSONA_LIMIT}
+            value={draft.persona ?? ""}
+            placeholder={t("teamPersonaPlaceholder")}
+            onChange={(event) => {
+              update({ persona: event.target.value }, "persona");
+            }}
+          />
+          <span className={css.hint}>{t("teamPersonaHint")}</span>
         </label>
         <div className={`${css.field} ${css.full}`} role="group" aria-label={t("reviewAnalyst")}>
           <span className={css.label}>{t("reviewAnalyst")}</span>

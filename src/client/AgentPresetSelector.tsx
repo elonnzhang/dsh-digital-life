@@ -21,7 +21,8 @@ export interface AgentPresetOption {
 
 /** Callbacks and records injected by the Client installer. */
 export interface AgentPresetSelectorInjected {
-  load: () => Promise<{ options: AgentPresetOption[]; current: string; life?: string }>;
+  /** `team` names the expert team hosting the session when no digital life is bound. */
+  load: () => Promise<{ options: AgentPresetOption[]; current: string; life?: string; team?: string }>;
   select: (id: string) => Promise<void>;
   records: () => readonly DigitalLifeRecord[];
   selectLife: (id: string) => Promise<void>;
@@ -49,6 +50,7 @@ export function AgentPresetSelector({
   const [options, setOptions] = useState<AgentPresetOption[]>([]);
   const [current, setCurrent] = useState("");
   const [life, setLife] = useState("");
+  const [team, setTeam] = useState("");
   const [presetOpen, setPresetOpen] = useState(false);
   const [lifeOpen, setLifeOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -59,6 +61,7 @@ export function AgentPresetSelector({
       setOptions([]);
       setCurrent("");
       setLife("");
+      setTeam("");
       setLoadError(undefined);
       return;
     }
@@ -67,6 +70,7 @@ export function AgentPresetSelector({
         setOptions(value.options);
         setCurrent(value.current);
         setLife(value.life ?? "");
+        setTeam(value.team ?? "");
         setLoadError(undefined);
       })
       .catch((error: unknown) => {
@@ -111,7 +115,10 @@ export function AgentPresetSelector({
           void select(id)
             .then(() => {
               setCurrent(id);
-              if (id !== "digital-life-mode") setLife("");
+              if (id !== "digital-life-mode") {
+                setLife("");
+                setTeam("");
+              }
             })
             .catch((error: unknown) => {
               setCurrent(previous);
@@ -163,6 +170,7 @@ export function AgentPresetSelector({
             void selectLife(id)
               .then(() => {
                 setLife(id);
+                setTeam("");
               })
               .catch((error) => {
                 console.error("digital-life: failed to select digital life", error);
@@ -176,14 +184,14 @@ export function AgentPresetSelector({
               className={css.seat}
               aria-haspopup="menu"
               aria-expanded={lifeOpen}
-              title={life === "" ? t("chooseLifeRequired") : chosenLife?.name}
+              title={life === "" ? (team === "" ? t("chooseLifeRequired") : team) : chosenLife?.name}
               onClick={() => {
                 setLifeOpen((value) => !value);
               }}
             >
               <IconUserOutlineMedium className={css.icon} />
               <span className={css.seatLabel}>
-                {chosenLife?.name ?? t("chooseLife")}
+                {chosenLife?.name ?? (team === "" ? t("chooseLife") : team)}
               </span>
               <IconChevronDownOutlineMedium className={css.chevron} />
             </button>

@@ -42,6 +42,12 @@ describe("expert team helpers", () => {
     expect(() => validateSettings({ teams: [normalizeTeam({ ...team, coordinatorId: "d", responsibilities: { d: "协调" } })] })).not.toThrow();
   });
 
+  it("keeps a team persona only when set", () => {
+    expect(normalizeTeam({ ...team, persona: "  主持人  " })).toEqual({ ...team, persona: "主持人" });
+    expect(normalizeTeam({ ...team, persona: "  " })).toEqual(team);
+    expect(teamError({ ...team, persona: "x".repeat(8_001) }, [], undefined, [])).toEqual({ field: "persona", reason: "teamPersonaLength" });
+  });
+
   it("lists experts before teams as @ candidates", () => {
     const experts = [{ id: "a", name: "Alpha", description: "Stats", tags: ["data"] }];
     const teams = [team, { ...team, id: "a", name: "Clash", purpose: "conflict" }];

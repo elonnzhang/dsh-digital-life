@@ -1,11 +1,13 @@
 export {
   apply,
   Config,
+  DEFAULT_TEAM_PERSONA,
   independentSystemPromptFor,
   independentSystemPromptPartsFor,
   inject,
   name,
   promptFor,
+  teamSystemPromptPartsFor,
   validateSettings,
 } from "./host/index.js";
 export {

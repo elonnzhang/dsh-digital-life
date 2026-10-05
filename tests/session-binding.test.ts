@@ -45,6 +45,19 @@ describe("digital-life session binding", () => {
     expect(JSON.parse(await readFile(join(root, "digital-life", "sessions", `${sessionId}.json`), "utf8"))).toEqual(binding);
   });
 
+  it("restores a team-hosted binding and rejects ambiguous owners", async () => {
+    const root = await mkdtemp(join(tmpdir(), "digital-life-binding-"));
+    roots.push(root);
+    const binding = { team: { id: "plan-review", name: "方案评审" }, pre: "Header", persona: "Host", suf: "Rules" };
+    await saveBinding("session-team", binding, root);
+    expect(await loadBinding("session-team", root)).toEqual(binding);
+    const dir = join(root, "digital-life", "sessions");
+    for (const [id, value] of [["session-both", { ...binding, recordId: "life" }], ["session-none", { pre: "", persona: "x", suf: "" }]] as const) {
+      await writeFile(join(dir, `${id}.json`), JSON.stringify(value));
+      await expect(loadBinding(id, root)).rejects.toThrow(/invalid binding/);
+    }
+  });
+
   it("rejects paths outside the managed session directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "digital-life-binding-"));
     roots.push(root);

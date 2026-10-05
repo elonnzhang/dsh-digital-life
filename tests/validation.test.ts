@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Config, independentSystemPromptFor, independentSystemPromptPartsFor, promptFor, validateSettings } from '../src/index.js'
+import { Config, DEFAULT_TEAM_PERSONA, independentSystemPromptFor, independentSystemPromptPartsFor, promptFor, teamSystemPromptPartsFor, validateSettings } from '../src/index.js'
 import type { DigitalLifeRecord } from '../src/types.js'
 
 const record: DigitalLifeRecord = {
@@ -140,5 +140,27 @@ describe('digital-life expert teams', () => {
     expect(() => { validateSettings({ teams: [{ ...team, responsibilities: { a: ' ' } }] }) }).toThrow(/1-200/)
     expect(() => { validateSettings({ teams: [{ ...team, responsibilities: { a: 'x'.repeat(201) } }] }) }).toThrow(/1-200/)
     expect(() => { validateSettings({ teams: [{ ...team, coordinatorId: ' ' }] }) }).toThrow(/coordinator/)
+  })
+
+  it('accepts a team persona of 1-8000 characters', () => {
+    expect(Config({ teams: [{ ...team, persona: '主持人' }] }).teams.get()[0]?.persona).toBe('主持人')
+    expect(Config({ teams: [team] }).teams.get()[0]?.persona).toBeUndefined()
+    expect(() => { validateSettings({ teams: [{ ...team, persona: ' ' }] }) }).toThrow(/persona/)
+    expect(() => { validateSettings({ teams: [{ ...team, persona: 'x'.repeat(8_001) }] }) }).toThrow(/persona/)
+  })
+
+  it('hosts a team session with the team persona, not a member persona', () => {
+    const members = ['a', 'b', 'c'].map((id) => ({ id, name: `Name ${id}`, description: id, category: 'science' as const, tags: [], persona: `Member ${id}`, enabled: true }))
+    const parts = teamSystemPromptPartsFor({ ...team, persona: '  团队主持人  ', responsibilities: { a: '统计' } }, members)
+    expect(parts.persona).toBe('团队主持人')
+    expect(parts.pre).toContain('# 专家团：方案评审（@plan-review）')
+    expect(parts.pre).toContain('- 分析：Name a（@a） — 统计')
+    expect(parts.pre).toContain('- 审查与汇总：Name c（@c）')
+    expect(parts.suf).toContain('teamId "plan-review"')
+    expect(`${parts.pre}${parts.persona}${parts.suf}`).not.toMatch(/Member [abc]/)
+    expect(teamSystemPromptPartsFor(team, members).persona).toBe(DEFAULT_TEAM_PERSONA)
+    const adhoc = teamSystemPromptPartsFor({ name: '临时专家团', analystIds: ['a'], reviewerId: 'c' }, members)
+    expect(adhoc.pre).toContain('临时组队')
+    expect(adhoc.suf).toContain('analystIds ["a"] 和 reviewerId "c"')
   })
 })

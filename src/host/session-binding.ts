@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { digitalLifeHome } from "./identity.js";
 
 export interface DigitalLifeBinding {
-  recordId: string;
+  /** Bound digital life; absent when an expert team hosts the session. */
+  recordId?: string;
+  /** Hosting expert team; `id` is absent for an ad-hoc lineup. */
+  team?: { id?: string; name: string };
   /** Text before the identity. */
   pre: string;
   /** The identity file (AGENTS.md) verbatim. */
@@ -25,10 +28,17 @@ function bindingPath(sessionId: string, stateDir?: string): string {
   return join(digitalLifeHome(process.env, stateDir), "sessions", `${sessionId}.json`);
 }
 
+function isTeam(value: unknown): value is NonNullable<DigitalLifeBinding["team"]> {
+  if (typeof value !== "object" || value === null) return false;
+  const team = value as NonNullable<DigitalLifeBinding["team"]>;
+  return typeof team.name === "string" && (team.id === undefined || typeof team.id === "string");
+}
+
 function isBinding(value: object): value is DigitalLifeBinding {
   const binding = value as DigitalLifeBinding;
-  return typeof binding.recordId === "string" && typeof binding.pre === "string" &&
-    typeof binding.persona === "string" && typeof binding.suf === "string";
+  // Exactly one of a digital life or a hosting team.
+  const owner = binding.team === undefined ? typeof binding.recordId === "string" : binding.recordId === undefined && isTeam(binding.team);
+  return owner && typeof binding.pre === "string" && typeof binding.persona === "string" && typeof binding.suf === "string";
 }
 
 function isLegacyBinding(value: object): value is LegacyDigitalLifeBinding {
