@@ -9,10 +9,12 @@ export interface AgentPresetOption {
 }
 /** Callbacks and records injected by the Client installer. */
 export interface AgentPresetSelectorInjected {
+    /** `team` names the expert team hosting the session when no digital life is bound. */
     load: () => Promise<{
         options: AgentPresetOption[];
         current: string;
         life?: string;
+        team?: string;
     }>;
     select: (id: string) => Promise<void>;
     records: () => readonly DigitalLifeRecord[];

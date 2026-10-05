@@ -21,6 +21,8 @@ export interface Config {
 }
 export declare const Config: z<DigitalLifeSettings, Config>;
 export declare function validateSettings(settings: DigitalLifeSettings): void;
+/** Identity of a team's session host when the team sets none. */
+export declare const DEFAULT_TEAM_PERSONA: string;
 /** Append the local opening message without entering the agent loop. */
 export declare function appendOpeningAssistantMessage(session: Session, text: string): void;
 /** Durable system prompt of a standalone digital life, split so the identity file is a section of its own. */
@@ -36,6 +38,13 @@ export interface IndependentSystemPrompt {
 export declare function independentSystemPromptPartsFor(record: DigitalLifeRecord, identity?: string): IndependentSystemPrompt;
 /** The standalone system prompt as one text, in section order. */
 export declare function independentSystemPromptFor(record: DigitalLifeRecord, identity?: string): string;
+/** A team a session is hosted for: a saved team, or an ad-hoc lineup without an id. */
+export type HostedTeam = Omit<ExpertTeam, "id" | "purpose"> & {
+    id?: string;
+    purpose?: string;
+};
+/** Build the durable system prompt sections for a session hosted by an expert team. */
+export declare function teamSystemPromptPartsFor(team: HostedTeam, records: readonly DigitalLifeRecord[]): IndependentSystemPrompt;
 /**
  * Build the one-shot consultation prompt for a digital life.
  * The identity itself is installed as the subagent persona, so it is not repeated here.

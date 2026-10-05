@@ -143,6 +143,10 @@ export declare const zh: {
     readonly teamId: "团队 ID";
     readonly teamPurpose: "用途说明";
     readonly teamPurposePlaceholder: "例如：评审架构与实施风险";
+    readonly teamPersona: "主持人人格";
+    readonly teamPersonaPlaceholder: "例如：你是技术评审会的主持人，先厘清目标和约束，再组织成员独立分析……";
+    readonly teamPersonaHint: "从设置面板发起评审时，会话以这一人格主持专家团，而不是某位成员；留空使用中立的默认主持人。最多 8000 字。";
+    readonly teamPersonaLength: "主持人人格不能超过 8000 字。";
     readonly analystLimit: "最多 3 名；审查专家不能同时担任分析专家。";
     readonly analystCount: "请选择 1–3 名分析专家。";
     readonly reviewerRequired: "请选择审查与汇总专家。";
@@ -336,6 +340,10 @@ export declare const en: {
     teamId: string;
     teamPurpose: string;
     teamPurposePlaceholder: string;
+    teamPersona: string;
+    teamPersonaPlaceholder: string;
+    teamPersonaHint: string;
+    teamPersonaLength: string;
     analystLimit: string;
     analystCount: string;
     reviewerRequired: string;
