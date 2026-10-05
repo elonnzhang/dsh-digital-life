@@ -13,6 +13,9 @@ import { renderTeamRunMarkdown } from "./team-render.js";
 /** Branch used when the client does not name one. */
 const DEFAULT_REF = "main";
 
+/** Tool a structured stage subagent calls to submit its report (dsh-subagent in-process driver). */
+const STRUCTURED_OUTPUT_TOOL = "structured_output";
+
 interface Options {
   current: () => ResolvedDigitalLifeSettings;
   stateDir: () => string | undefined;
@@ -66,6 +69,10 @@ export function createExpertService(options: Options) {
   };
   // runId → controller for explicit cancellation of the stage currently executing.
   const active = new Map<string, { controller: AbortController; home: string }>();
+  // Session ids of live stage subagents. Agent Teams installs its tools into a child's own
+  // scope before the subagent descriptor exists, so `toolFilter` cannot hide them; a Host
+  // guard denies them at execution instead.
+  const stageChildren = new Set<string>();
   /** Bring a stored run up to date: recover Host stops, lazily expire idle runs, keep v1 legacy rules. */
   const refresh = async (run: AnyReviewRun, stateDir?: string): Promise<AnyReviewRun> => {
     if (active.has(run.id)) return run;
@@ -121,6 +128,8 @@ export function createExpertService(options: Options) {
           : member.model === undefined ? {} : { agentOptions: member.model }),
         ...(provider.capabilities.outputSchema ? { outputSchema } : {}),
       });
+      // Tool calls need a model response first, so recording the id after `start()` is in time.
+      stageChildren.add(child.id);
       try {
         const result = await child.result;
         if (result.stopReason !== "completed") throw new Error(`Review stage ended with ${result.stopReason}`);
@@ -128,6 +137,7 @@ export function createExpertService(options: Options) {
         const text = result.output.filter((block) => block.type === "text").map((block) => block.text).join("").trim();
         return JSON.parse(text);
       } finally {
+        stageChildren.delete(child.id);
         await child.dispose();
       }
     };
@@ -179,6 +189,9 @@ export function createExpertService(options: Options) {
       } as const;
       const ORDER = "推荐顺序：brief（可选）→ 若有补问先交给用户，回答后 amend_team_brief → analysis → cross-critique（分析专家≥2时建议）→ review → synthesis。如实转述 synthesis 报告，你自己的补充单独标明。";
       const disposers = [
+        target.ctx.tools.guard((exec) => exec.agent !== undefined && stageChildren.has(exec.agent.id) && exec.name !== STRUCTURED_OUTPUT_TOOL
+          ? `digital-life: team stage subagents may only call ${STRUCTURED_OUTPUT_TOOL}; ${exec.name} is not available`
+          : undefined),
         target.ctx.tools.register(defineTool({
           name: "read_expert_reference",
           description: "读取已导入专家包中的参考资料。省略 path 列出文件；只返回本地固定版本内容，不会访问资料中的外部链接。",
