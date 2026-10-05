@@ -105,7 +105,7 @@ export async function listReviewRuns(stateDir?: string): Promise<ReviewSummary[]
   const runs = await Promise.all(paths.filter((path) => path.endsWith(".json") && RUN_ID.test(path.slice(0, -5)))
     .map((path) => readReviewRun(path.slice(0, -5), stateDir)));
   return runs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 30).map((run) => ({
-    id: run.id, status: run.status, createdAt: run.createdAt, updatedAt: run.updatedAt, question: run.request.question.slice(0, 200),
+    id: run.id, status: run.status, createdAt: run.createdAt, updatedAt: run.updatedAt, question: run.request.question.slice(0, 200), schemaVersion: 1,
   }));
 }
 

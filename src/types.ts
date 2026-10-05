@@ -40,4 +40,5 @@ export interface ResolvedDigitalLifeSettings {
   provider: string;
   maxBatchSize: number;
   records: DigitalLifeRecord[];
+  teams: ExpertTeam[];
 }

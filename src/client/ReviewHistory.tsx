@@ -9,28 +9,32 @@ import {
   StateDot,
   type StateDotState,
 } from "@deepseek-ai/dsh-client-ui-primitives";
-import type { ReviewRun, ReviewStatus, ReviewSummary } from "../expert-types.js";
+import type { ReviewRun, ReviewSummary } from "../expert-types.js";
 import type { ExpertWorkbenchApi } from "./ExpertWorkbench.js";
 import { errorText } from "./controls.js";
 import css from "./settings.module.css";
 
 const STATUS_KEYS = {
+  open: "reviewOpen",
   running: "reviewRunning",
   completed: "reviewCompleted",
   partial: "reviewPartial",
   failed: "reviewFailed",
   cancelled: "reviewCancelled",
   "timed-out": "reviewTimedOut",
-} as const satisfies Record<ReviewStatus, string>;
+  expired: "reviewExpired",
+} as const satisfies Record<ReviewSummary["status"], string>;
 
 const STATUS_DOTS = {
+  open: "ongoing",
   running: "ongoing",
   completed: "done",
   partial: "warning",
   failed: "error",
   cancelled: "idle",
   "timed-out": "warning",
-} as const satisfies Record<ReviewStatus, StateDotState>;
+  expired: "idle",
+} as const satisfies Record<ReviewSummary["status"], StateDotState>;
 
 const POLL_MS = 2_000;
 

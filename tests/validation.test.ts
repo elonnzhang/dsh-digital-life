@@ -124,4 +124,18 @@ describe('digital-life expert teams', () => {
     expect(() => { validateSettings({ teams: [{ ...team, reviewerId: 'a' }] }) }).toThrow(/reviewer/)
     expect(() => { validateSettings({ teams: [{ ...team, reviewerId: '' }] }) }).toThrow(/reviewer/)
   })
+
+  it('accepts a coordinator and member responsibilities', () => {
+    const parsed = Config({ teams: [{ ...team, coordinatorId: 'd', responsibilities: { a: '统计方法' } }] }).teams.get()
+    expect(parsed[0]).toMatchObject({ coordinatorId: 'd', responsibilities: { a: '统计方法' } })
+    expect(Config({ teams: [team] }).teams.get()[0]?.coordinatorId).toBeUndefined()
+    expect(() => { validateSettings({ teams: [{ ...team, coordinatorId: 'd', responsibilities: { a: '统计', d: '拆解目标' } }] }) }).not.toThrow()
+  })
+
+  it('rejects responsibilities for non-members or of invalid length', () => {
+    expect(() => { validateSettings({ teams: [{ ...team, responsibilities: { x: '统计' } }] }) }).toThrow(/responsibility/)
+    expect(() => { validateSettings({ teams: [{ ...team, responsibilities: { a: ' ' } }] }) }).toThrow(/1-200/)
+    expect(() => { validateSettings({ teams: [{ ...team, responsibilities: { a: 'x'.repeat(201) } }] }) }).toThrow(/1-200/)
+    expect(() => { validateSettings({ teams: [{ ...team, coordinatorId: ' ' }] }) }).toThrow(/coordinator/)
+  })
 })

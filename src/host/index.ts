@@ -74,6 +74,8 @@ const TeamSchema: z<ExpertTeam> = z.object({
   purpose: z.string().default(""),
   analystIds: z.array(z.string()).default([]),
   reviewerId: z.string(),
+  coordinatorId: z.string().required(false),
+  responsibilities: z.dict(z.string()).required(false),
 });
 
 /**
@@ -161,6 +163,16 @@ export function validateSettings(settings: DigitalLifeSettings): void {
       throw new Error(`digital-life: team "${team.id}" needs 1-3 unique analysts`);
     if (team.reviewerId.trim() === "" || team.analystIds.includes(team.reviewerId))
       throw new Error(`digital-life: team "${team.id}" needs a reviewer who is not an analyst`);
+    if (team.coordinatorId !== undefined && team.coordinatorId.trim() === "")
+      throw new Error(`digital-life: team "${team.id}" coordinator id must not be blank`);
+    // 3 analysts + reviewer + coordinator; the coordinator may also hold another role.
+    const members = new Set([...team.analystIds, team.reviewerId, team.coordinatorId ?? team.reviewerId]);
+    for (const [memberId, text] of Object.entries(team.responsibilities ?? {})) {
+      if (!members.has(memberId))
+        throw new Error(`digital-life: team "${team.id}" has a responsibility for non-member "${memberId}"`);
+      if (text.trim() === "" || text.length > 200)
+        throw new Error(`digital-life: team "${team.id}" responsibility for "${memberId}" must contain 1-200 characters`);
+    }
   }
   if ((settings.maxBatchSize ?? 3) < 1) throw new Error("digital-life: maxBatchSize must be positive");
 }
@@ -170,6 +182,7 @@ function resolved(settings: DigitalLifeSettings): ResolvedDigitalLifeSettings {
     provider: settings.provider ?? "spawn",
     maxBatchSize: settings.maxBatchSize ?? 3,
     records: normalizeRecords(settings.records ?? []),
+    teams: settings.teams ?? [],
   };
 }
 

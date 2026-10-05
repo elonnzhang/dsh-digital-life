@@ -12,7 +12,7 @@ describe("expert tools on the actual Harness registry", () => {
     const ctx = new Context();
     await ctx.plugin(SystemPrompt, {});
     await ctx.plugin(ToolRuntime);
-    const service = createExpertService({ current: () => ({ provider: "spawn", maxBatchSize: 3, records: [] }), stateDir: () => undefined });
+    const service = createExpertService({ current: () => ({ provider: "spawn", maxBatchSize: 3, records: [], teams: [] }), stateDir: () => undefined });
     const unregister = service.registerTools({ ctx });
     let scope!: Scope;
     const agent = { id: "session-scope-test" } as Agent;

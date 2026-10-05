@@ -24,6 +24,10 @@ export interface ExpertTeam {
   analystIds: string[];
   /** Record id; never one of the analysts. */
   reviewerId: string;
+  /** Record id leading the brief stage; the reviewer when omitted. May also hold another role. */
+  coordinatorId?: string;
+  /** Member id → responsibility (1–200 characters); members without one do 综合分析. */
+  responsibilities?: Record<string, string>;
 }
 
 export interface ExpertCatalogEntry {
@@ -107,6 +111,47 @@ export interface ReviewRun {
   error?: string;
 }
 
-export type ReviewSummary = Pick<ReviewRun, "id" | "status" | "createdAt" | "updatedAt"> & {
+export type ReviewSummary = Pick<ReviewRun, "id" | "createdAt" | "updatedAt"> & {
+  status: ReviewStatus | TeamRunStatus;
   question: string;
+  schemaVersion: 1 | 2;
 };
+
+export type TeamStageKind = "brief" | "analysis" | "cross-critique" | "review" | "synthesis";
+export type TeamRunStatus = "open" | "running" | "completed" | "partial" | "failed" | "cancelled" | "timed-out" | "expired";
+export type TeamMemberRole = "coordinator" | "analyst" | "reviewer";
+export interface BriefReport { objective: string; acceptanceCriteria: string[]; constraints: string[]; clarifyingQuestions: string[] }
+export interface CritiqueReport {
+  summary: string;
+  items: Array<{ targetStageId: string; issue: string; kind: "counterexample" | "unsupported" | "risk" | "missing"; evidenceIds: string[] }>;
+}
+export type DisagreementType = "fact" | "assumption" | "applicability" | "value";
+export type DisagreementResolution = "gather-evidence" | "experiment" | "human-decision";
+export interface SynthesisReport extends Omit<ReviewReport, "disagreements"> {
+  disagreements: Array<{ topic: string; positions: Array<{ stageId: string; position: string }>; type: DisagreementType; resolution: DisagreementResolution; test?: string }>;
+  options: Array<{ name: string; tradeoffs: string }>;
+  validationPlan: Array<{ task: string; decides: string; stopCondition: string }>;
+  missingStages: string[];
+}
+export type TeamStageReport = BriefReport | ReviewReport | CritiqueReport | SynthesisReport;
+export interface TeamMember {
+  id: string; name: string; roles: TeamMemberRole[]; responsibility: string;
+  identity: string; identitySha256: string;
+  model?: { provider?: string; model?: string };
+  expertPackage?: ExpertPackageBinding;
+}
+export interface TeamStage {
+  id: string; kind: TeamStageKind; expertId: string; briefVersion: number;
+  inputStageIds: string[]; evidenceIds: string[];
+  status: "running" | "completed" | "failed" | "cancelled";
+  startedAt: string; finishedAt?: string; report?: TeamStageReport; error?: string;
+}
+export interface TeamRun {
+  schemaVersion: 2; id: string; sessionId: string; teamId?: string;
+  createdAt: string; updatedAt: string; status: TeamRunStatus;
+  briefs: Array<{ version: number; text: string; source: "user" | "amendment"; createdAt: string }>;
+  members: TeamMember[]; evidence: ExpertReference[]; stages: TeamStage[];
+  budget: { maxCalls: number; callsUsed: number; maxActiveMs: number; activeMs: number };
+  error?: string;
+}
+export type AnyReviewRun = ReviewRun | TeamRun;

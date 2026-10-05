@@ -32,7 +32,7 @@ async function fixture(structured = true) {
     subagents: { getProvider: () => ({ capabilities: { persona: true, toolFilter: true, outputSchema: structured, agentOptions: true } }), start },
     tools: { register: (tool: RegisteredTool) => { registered.set(tool.name, tool); return () => registered.delete(tool.name); } },
   } } as unknown as Agent;
-  const service = createExpertService({ current: () => ({ provider: "spawn", maxBatchSize: 3, records }), stateDir: () => stateDir });
+  const service = createExpertService({ current: () => ({ provider: "spawn", maxBatchSize: 3, records, teams: [] }), stateDir: () => stateDir });
   const unregister = service.registerTools(parent);
   const signal = new AbortController().signal;
   const exec = { agent: parent, signal } as ToolExecution;
