@@ -23,7 +23,7 @@ import type {
   ClientConnectionRpc,
   ConnectionHandle,
 } from "@deepseek-ai/dsh-client-connection/client";
-import { IconUserOutlineRegular, IconUsersOutlineMedium } from "@deepseek-ai/dsh-client-ui-primitives";
+import { IconUsersOutlineMedium } from "@deepseek-ai/dsh-client-ui-primitives";
 import { DIGITAL_LIFE_NAMESPACE } from "../constants.js";
 import type { DigitalLifeRecord, DigitalLifeSettings } from "../types.js";
 import {
@@ -37,6 +37,7 @@ import {
 } from "./installAgentPresetSelector.js";
 import { en, NS, zh, type DigitalLifeKey } from "./locales.js";
 import { reviewSubmission, type ExpertWorkbenchApi } from "./ExpertWorkbench.js";
+import { mentionCandidates } from "./teams.js";
 import type { ExpertCatalogEntry, ReviewRun, ReviewSummary } from "../expert-types.js";
 
 declare module "@deepseek-ai/dsh-client-ui-slots" {
@@ -136,6 +137,7 @@ export function apply(ctx: ClientContext): void {
   });
   const records = (): NonNullable<DigitalLifeSettings["records"]> =>
     form.getSnapshot().value?.records?.filter((record) => record.enabled) ?? [];
+  const teams = (): NonNullable<DigitalLifeSettings["teams"]> => form.getSnapshot().value?.teams ?? [];
   // The Host `dsh-session` and Client Session Controller both merge a `sessions`
   // service onto Context; read the Client contract explicitly.
   const sessions = ctx.get("sessions") as unknown as ISessions;
@@ -247,26 +249,16 @@ export function apply(ctx: ClientContext): void {
     name: DIGITAL_LIFE_NAMESPACE,
     order: 5,
     candidates(_session, { query }) {
-      const needle = query;
+      // Experts win an id clash; mentionCandidates hides the shadowed team.
       return Promise.resolve(
-        records()
-          .filter((item) =>
-            `${item.id} ${item.name} ${item.description} ${item.tags.join(" ")}`
-              .toLowerCase()
-              .includes(needle.toLowerCase()),
-          )
-          .map((item) => ({
-            name: item.id,
-            description: `${item.name} · ${item.description}`,
-            icon: IconUserOutlineRegular,
-          })),
+        mentionCandidates(records(), teams(), query).map(({ name, description, icon }) => ({ name, description, icon })),
       );
     },
     warm() {
       void Promise.resolve();
     },
     lexicon() {
-      return records().map((item) => item.id);
+      return [...records().map((item) => item.id), ...teams().map((team) => team.id)];
     },
     subscribeLexicon(_session, listener) {
       return form.subscribe(listener);

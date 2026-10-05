@@ -134,11 +134,15 @@ export function TeamsTab({
                         {t(issue.kind === "missing" ? "issueMissing" : "issueDisabled", { id: issue.id })}
                       </Tag>
                     ))}
+                    {records.some((record) => record.id === team.id) ? (
+                      <Tag tone="warning">{t("teamIdShadowed", { id: team.id })}</Tag>
+                    ) : null}
                   </div>
                   {team.purpose === "" ? null : <p className={css.preview}>{team.purpose}</p>}
                   <p className={css.muted}>
                     {t("teamAnalysts", { names: team.analystIds.map(nameOf).join("、") })} ·{" "}
                     {t("teamReviewer", { name: nameOf(team.reviewerId) })}
+                    {team.coordinatorId === undefined ? null : <> · {t("teamCoordinatorName", { name: nameOf(team.coordinatorId) })}</>}
                   </p>
                 </div>
                 <div className={css.actions}>

@@ -1,5 +1,6 @@
 import type { ExpertTeam, ReviewRequest } from "../expert-types.js";
 import type { DigitalLifeRecord } from "../types.js";
+import { IconUsersOutlineMedium, IconUserOutlineRegular } from "@deepseek-ai/dsh-client-ui-primitives";
 
 /** Most analysts one review accepts (mirrors the Host review validator). */
 export const MAX_ANALYSTS = 3;
@@ -41,51 +42,78 @@ export function normalizeTeam(draft: ExpertTeam): ExpertTeam {
   const analystIds = [...new Set(draft.analystIds.map((id) => id.trim()))].filter(
     (id) => id !== "" && id !== reviewerId,
   );
+  const coordinatorId = draft.coordinatorId?.trim() ?? "";
+  const members = new Set([...analystIds, reviewerId, ...(coordinatorId === "" ? [] : [coordinatorId])]);
+  // Keep only filled-in duties of people still on the team.
+  const responsibilities = Object.fromEntries(
+    Object.entries(draft.responsibilities ?? {})
+      .map(([id, duty]) => [id.trim(), duty.trim()] as const)
+      .filter(([id, duty]) => members.has(id) && duty !== ""),
+  );
   return {
     id: draft.id.trim(),
     name: draft.name.trim(),
     purpose: draft.purpose.trim(),
     analystIds,
     reviewerId,
+    ...(coordinatorId === "" ? {} : { coordinatorId }),
+    ...(Object.keys(responsibilities).length === 0 ? {} : { responsibilities }),
   };
 }
 
+/** Longest member responsibility the Host accepts. */
+export const RESPONSIBILITY_LIMIT = 200;
+
 /** Editor field that failed validation. */
-export type TeamField = "id" | "name" | "analystIds" | "reviewerId";
+export type TeamField = "id" | "name" | "analystIds" | "reviewerId" | "responsibilities";
 
 /**
  * Check a normalized team before it is written.
  * @param team Normalized team.
  * @param teams Saved teams.
  * @param editingId Id of the team being edited, if any.
+ * @param recordIds Expert ids; a new team id may not shadow one in `@` mentions.
  * @returns The first failing field and its reason, or undefined when valid.
  */
 export function teamError(
   team: ExpertTeam,
   teams: readonly ExpertTeam[],
   editingId: string | undefined,
-): { field: TeamField; reason: "required" | "invalidId" | "duplicateId" | "analystCount" } | undefined {
+  recordIds: readonly string[],
+): { field: TeamField; reason: "required" | "invalidId" | "duplicateId" | "idConflict" | "analystCount" | "responsibilityLength" } | undefined {
   if (team.id === "") return { field: "id", reason: "required" };
   if (!ID_PATTERN.test(team.id)) return { field: "id", reason: "invalidId" };
   if (team.id !== editingId && teams.some((item) => item.id === team.id)) return { field: "id", reason: "duplicateId" };
+  // Existing conflicts stay editable; the team list warns about them instead.
+  if (team.id !== editingId && recordIds.includes(team.id)) return { field: "id", reason: "idConflict" };
   if (team.name === "") return { field: "name", reason: "required" };
   if (team.analystIds.length < 1 || team.analystIds.length > MAX_ANALYSTS)
     return { field: "analystIds", reason: "analystCount" };
   if (team.reviewerId === "") return { field: "reviewerId", reason: "required" };
+  if (Object.values(team.responsibilities ?? {}).some((duty) => duty.length > RESPONSIBILITY_LIMIT))
+    return { field: "responsibilities", reason: "responsibilityLength" };
   return undefined;
 }
 
+/** What the settings launcher submits: a saved team by id, or an ad-hoc lineup. */
+export type LaunchRequest = ReviewRequest & { teamId?: string };
+
 /**
- * Build the review request a team runs.
+ * Build the request a launch submits.
  * @param lineup Analysts and reviewer.
  * @param question Brief entered by the user.
- * @returns The request sent to the review tool.
+ * @param teamId Saved team, so the Host uses its coordinator and responsibilities.
+ * @returns The request handed to the main agent.
  */
 export function requestFromTeam(
   lineup: Pick<ExpertTeam, "analystIds" | "reviewerId">,
   question: string,
-): ReviewRequest {
-  return { question: question.trim(), expertIds: [...lineup.analystIds], reviewerId: lineup.reviewerId };
+  teamId?: string,
+): LaunchRequest {
+  return {
+    question: question.trim(), expertIds: [...lineup.analystIds], reviewerId: lineup.reviewerId,
+    ...(teamId === undefined ? {} : { teamId }),
+  };
 }
 
 /**
@@ -111,4 +139,38 @@ export function suggestTeamId(name: string, teams: readonly ExpertTeam[]): strin
   let index = 2;
   while (taken.has(`${base}-${index}`)) index += 1;
   return `${base}-${index}`;
+}
+
+/** One `@` candidate: an expert, or a saved team. */
+export interface MentionCandidate {
+  name: string;
+  description: string;
+  icon: typeof IconUserOutlineRegular;
+  kind: "expert" | "team";
+}
+
+/**
+ * Rank `@` candidates: experts first, then saved teams whose id no expert already uses.
+ * @param records Enabled digital-life records.
+ * @param teams Saved teams.
+ * @param query Text typed after `@`.
+ * @returns Matching candidates.
+ */
+export function mentionCandidates(
+  records: readonly Pick<DigitalLifeRecord, "id" | "name" | "description" | "tags">[],
+  teams: readonly ExpertTeam[],
+  query: string,
+): MentionCandidate[] {
+  const needle = query.toLowerCase();
+  const matches = (text: string): boolean => text.toLowerCase().includes(needle);
+  const experts = records
+    .filter((item) => matches(`${item.id} ${item.name} ${item.description} ${item.tags.join(" ")}`))
+    .map((item): MentionCandidate => ({ name: item.id, description: `${item.name} · ${item.description}`, icon: IconUserOutlineRegular, kind: "expert" }));
+  const taken = new Set(records.map((item) => item.id));
+  const saved = teams
+    .filter((team) => !taken.has(team.id) && matches(`${team.id} ${team.name} ${team.purpose}`))
+    .map((team): MentionCandidate => ({
+      name: team.id, description: team.purpose === "" ? team.name : `${team.name} · ${team.purpose}`, icon: IconUsersOutlineMedium, kind: "team",
+    }));
+  return [...experts, ...saved];
 }

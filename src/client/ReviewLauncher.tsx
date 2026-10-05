@@ -69,7 +69,7 @@ export function ReviewLauncher({
     setBusy(true);
     setError(undefined);
     void api
-      .startReview(requestFromTeam(lineup, question))
+      .startReview(requestFromTeam(lineup, question, mode === "team" ? teamId : undefined))
       .then(() => {
         notify(t("reviewSubmitted"));
       })

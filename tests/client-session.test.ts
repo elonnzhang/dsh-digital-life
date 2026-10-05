@@ -4,6 +4,7 @@ import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { ChatPanelInjected } from "../src/client/ChatPanel.js";
 import type { AgentPresetSelectorInjected } from "../src/client/AgentPresetSelector.js";
 import type { DigitalLifeRecord } from "../src/types.js";
+import type { ExpertTeam } from "../src/expert-types.js";
 import type { ExpertWorkbenchApi } from "../src/client/ExpertWorkbench.js";
 import { MIMEOGRAPHS_REVISION } from "../src/expert-types.js";
 
@@ -26,7 +27,7 @@ const record: DigitalLifeRecord = {
 
 function setup(
   presets: readonly { id: string; broken?: string }[],
-  options: { rosterUnavailable?: boolean; selectFails?: boolean; records?: DigitalLifeRecord[] } = {},
+  options: { rosterUnavailable?: boolean; selectFails?: boolean; records?: DigitalLifeRecord[]; teams?: ExpertTeam[]; onSource?: (source: unknown) => void } = {},
 ) {
   const calls: string[] = [];
   let configuredRecords = options.records ?? [record];
@@ -119,7 +120,7 @@ function setup(
           },
         },
       },
-      inputTriggers: { registerSource: () => () => {} },
+      inputTriggers: { registerSource: (s: unknown) => { options.onSource?.(s); return () => {}; } },
     })[service as "sessions" | "remote" | "connection" | "inputTriggers"],
     effect: (install: () => unknown) => install(),
     locale: { register: () => () => {}, bind: () => (key: string) => key },
@@ -131,7 +132,7 @@ function setup(
         },
       },
       get: () => ({
-        getSnapshot: () => ({ writable: true, value: { records: configuredRecords } }),
+        getSnapshot: () => ({ writable: true, value: { records: configuredRecords, teams: options.teams ?? [] } }),
         set: async (_key: string, value: DigitalLifeRecord[]) => { configuredRecords = value; calls.push("save-records"); return true; },
         subscribe: () => () => {},
       }),
@@ -214,12 +215,13 @@ describe("digital-life standalone sessions", () => {
   it("opens and submits a review request after binding the session", async () => {
     const reviewer = { ...record, id: "critic" };
     const fixture = setup([{ id: "digital-life-mode" }], { records: [record, reviewer] });
-    await fixture.expertApi.startReview({ question: "Review this plan", expertIds: [record.id], reviewerId: reviewer.id });
+    await fixture.expertApi.startReview({ question: "Review this plan", expertIds: [record.id], reviewerId: reviewer.id, teamId: "plan-review" });
     expect(fixture.calls).toEqual(["project", "create", "list", "select:digital-life-mode", "bind", "open", "prompt", "release"]);
     // The `t` mock echoes locale keys, so the submission carries the instruction key.
-    // The real instruction text that names review_expert_plan is covered by locales.test.ts.
+    // The real instruction text that names start_team_run is covered by locales.test.ts.
     expect(JSON.stringify(fixture.promptContent)).toContain("reviewRequestInstruction");
     expect(JSON.stringify(fixture.promptContent)).toContain("Review this plan");
+    expect(JSON.stringify(fixture.promptContent)).toContain("plan-review");
   });
 
   it("declares the preset remote used by session creation and the selector", () => {
@@ -310,5 +312,11 @@ describe("digital-life standalone sessions", () => {
     await selector.select("standard");
     expect(fixture.calls).toContain("select:standard");
     expect(fixture.calls).toContain("unbind");
+  });
+
+  it("offers saved teams after experts in @ candidates", async () => {
+    let source: { candidates: (session: unknown, input: { query: string }) => Promise<Array<{ name: string }>> } | undefined;
+    setup([], { teams: [{ id: "study", name: "Study", purpose: "Plans", analystIds: [record.id], reviewerId: record.id }], onSource: (s) => { source = s as typeof source; } });
+    expect((await source!.candidates(undefined, { query: "" })).map((item) => item.name)).toEqual([record.id, "study"]);
   });
 });

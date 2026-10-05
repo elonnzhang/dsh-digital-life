@@ -4,7 +4,7 @@ import { Button, Checkbox, Input, Modal } from "@deepseek-ai/dsh-client-ui-primi
 import type { DigitalLifeRecord } from "../types.js";
 import type { ExpertTeam } from "../expert-types.js";
 import { MenuSelect } from "./controls.js";
-import { MAX_ANALYSTS, normalizeTeam, suggestTeamId, teamError, type TeamField } from "./teams.js";
+import { MAX_ANALYSTS, RESPONSIBILITY_LIMIT, normalizeTeam, suggestTeamId, teamError, type TeamField } from "./teams.js";
 import css from "./settings.module.css";
 
 const REASON_KEYS = {
@@ -12,7 +12,10 @@ const REASON_KEYS = {
   invalidId: "invalidId",
   duplicateId: "duplicateId",
   analystCount: "analystCount",
+  idConflict: "teamIdConflict",
+  responsibilityLength: "responsibilityLength",
 } as const;
+const BY_REVIEWER = "__reviewer__";
 
 /**
  * Add or edit one expert team in a dialog.
@@ -57,7 +60,7 @@ export function TeamEditor({
   };
   const save = (): void => {
     const team = normalizeTeam(draft);
-    const problem = teamError(team, teams, existing ? initial.id : undefined);
+    const problem = teamError(team, teams, existing ? initial.id : undefined, records.map((record) => record.id));
     if (problem !== undefined) {
       setInvalid(problem.field);
       setError(
@@ -170,6 +173,43 @@ export function TeamEditor({
               update({ reviewerId }, "reviewerId");
             }}
           />
+        </div>
+        <div className={`${css.field} ${css.full}`}>
+          <span className={css.label}>{t("teamCoordinator")}</span>
+          <MenuSelect
+            // Menu item ids must be non-empty, so "reviewer doubles as coordinator" uses a sentinel.
+            value={draft.coordinatorId ?? BY_REVIEWER}
+            placeholder={t("coordinatorByReviewer")}
+            options={[
+              { value: BY_REVIEWER, label: t("coordinatorByReviewer") },
+              ...records.map((record) => ({ value: record.id, label: `${record.name} @${record.id}` })),
+            ]}
+            onChange={(coordinatorId) => {
+              const { coordinatorId: _previous, ...rest } = draft;
+              setDraft(coordinatorId === BY_REVIEWER ? rest : { ...rest, coordinatorId });
+            }}
+          />
+        </div>
+        <div className={`${css.field} ${css.full}`} role="group" aria-label={t("teamResponsibilities")}>
+          <span className={css.label}>{t("teamResponsibilities")}</span>
+          {[...new Set([...draft.analystIds, draft.reviewerId, draft.coordinatorId ?? ""])]
+            .filter((id) => id !== "")
+            .map((id) => (
+              <Input
+                key={id}
+                className={controlClass("responsibilities")}
+                aria-label={t("responsibilityFor", { id })}
+                value={draft.responsibilities?.[id] ?? ""}
+                maxLength={RESPONSIBILITY_LIMIT}
+                placeholder={t("responsibilityPlaceholder", { id })}
+                onChange={(event) => {
+                  update({ responsibilities: { ...draft.responsibilities, [id]: event.target.value } }, "responsibilities");
+                }}
+              />
+            ))}
+          <span className={`${css.hint} ${invalid === "responsibilities" ? css.fieldError : ""}`}>
+            {t("responsibilityHint")}
+          </span>
         </div>
       </div>
     </Modal>
