@@ -23,7 +23,7 @@ import type {
   ClientConnectionRpc,
   ConnectionHandle,
 } from "@deepseek-ai/dsh-client-connection/client";
-import { IconUsersOutlineMedium } from "@deepseek-ai/dsh-client-ui-primitives";
+import { IconUserOutlineRegular, IconUsersOutlineMedium } from "@deepseek-ai/dsh-client-ui-primitives";
 import { DIGITAL_LIFE_NAMESPACE } from "../constants.js";
 import type { DigitalLifeRecord, DigitalLifeSettings } from "../types.js";
 import {
@@ -251,7 +251,11 @@ export function apply(ctx: ClientContext): void {
     candidates(_session, { query }) {
       // Experts win an id clash; mentionCandidates hides the shadowed team.
       return Promise.resolve(
-        mentionCandidates(records(), teams(), query).map(({ name, description, icon }) => ({ name, description, icon })),
+        mentionCandidates(records(), teams(), query).map(({ name, description, kind }) => ({
+          name,
+          description,
+          icon: kind === "team" ? IconUsersOutlineMedium : IconUserOutlineRegular,
+        })),
       );
     },
     warm() {

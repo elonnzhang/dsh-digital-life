@@ -1,6 +1,5 @@
 import type { ExpertTeam, ReviewRequest } from "../expert-types.js";
 import type { DigitalLifeRecord } from "../types.js";
-import { IconUsersOutlineMedium, IconUserOutlineRegular } from "@deepseek-ai/dsh-client-ui-primitives";
 
 /** Most analysts one review accepts (mirrors the Host review validator). */
 export const MAX_ANALYSTS = 3;
@@ -145,7 +144,6 @@ export function suggestTeamId(name: string, teams: readonly ExpertTeam[]): strin
 export interface MentionCandidate {
   name: string;
   description: string;
-  icon: typeof IconUserOutlineRegular;
   kind: "expert" | "team";
 }
 
@@ -165,12 +163,12 @@ export function mentionCandidates(
   const matches = (text: string): boolean => text.toLowerCase().includes(needle);
   const experts = records
     .filter((item) => matches(`${item.id} ${item.name} ${item.description} ${item.tags.join(" ")}`))
-    .map((item): MentionCandidate => ({ name: item.id, description: `${item.name} · ${item.description}`, icon: IconUserOutlineRegular, kind: "expert" }));
+    .map((item): MentionCandidate => ({ name: item.id, description: `${item.name} · ${item.description}`, kind: "expert" }));
   const taken = new Set(records.map((item) => item.id));
   const saved = teams
     .filter((team) => !taken.has(team.id) && matches(`${team.id} ${team.name} ${team.purpose}`))
     .map((team): MentionCandidate => ({
-      name: team.id, description: team.purpose === "" ? team.name : `${team.name} · ${team.purpose}`, icon: IconUsersOutlineMedium, kind: "team",
+      name: team.id, description: team.purpose === "" ? team.name : `${team.name} · ${team.purpose}`, kind: "team",
     }));
   return [...experts, ...saved];
 }

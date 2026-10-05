@@ -1,9 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { mentionCandidates, normalizeTeam, requestFromTeam, suggestTeamId, teamError, teamIssues, teamsUsing } from "../src/client/teams.js";
 import { validateSettings } from "../src/index.js";
 import type { ExpertTeam } from "../src/expert-types.js";
-
-vi.mock("@deepseek-ai/dsh-client-ui-primitives", () => ({ IconUserOutlineRegular: () => null, IconUsersOutlineMedium: () => null }));
 
 const team: ExpertTeam = { id: "plan-review", name: "方案评审", purpose: "", analystIds: ["a", "b"], reviewerId: "c" };
 const records = [

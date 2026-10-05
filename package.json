@@ -65,7 +65,7 @@
     "dev": "tsdown --watch",
     "build:types": "tsc -p tsconfig.types.json",
     "typecheck": "tsc --noEmit -p tsconfig.host.json && tsc --noEmit -p tsconfig.client.json",
-    "test": "vitest run tests",
+    "test": "vitest run --dir tests",
     "smoke": "node scripts/smoke.mjs",
     "smoke:experts": "node scripts/smoke-experts.mjs",
     "check": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run smoke",
