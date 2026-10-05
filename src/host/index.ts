@@ -432,7 +432,7 @@ function registerTools(
               id: record.id,
               name: record.name,
               tags: record.tags,
-              answer: await consult(exec.agent?.ctx ?? target.ctx, record, args.question, exec, settings.provider, stateDir()),
+              answer: await consult(target.ctx, record, args.question, exec, settings.provider, stateDir()),
             };
           },
         }),
@@ -473,7 +473,7 @@ function registerTools(
                 id: record.id,
                 name: record.name,
                 tags: record.tags,
-                answer: await consult(exec.agent?.ctx ?? target.ctx, record, args.question, exec, settings.provider, stateDir()),
+                answer: await consult(target.ctx, record, args.question, exec, settings.provider, stateDir()),
               })),
             );
             return {

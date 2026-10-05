@@ -168,4 +168,15 @@ describe("expert Host service", () => {
     expect((await readTeamRun(runId, f.stateDir)).status).toBe("cancelled");
     expect(await f.service.rpc("review/read", { id: runId })).toMatchObject({ ok: true, value: { markdown: expect.stringContaining("cancelled") } });
   });
+
+  it("starts stage subagents from the Host context, not the session agent context", async () => {
+    const f = await fixture();
+    // Session agent contexts do not inject `subagents`; cordis throws on access.
+    const ctx = new Proxy({}, { get: (_target, prop) => { throw new Error(`cannot get property "${String(prop)}" without inject`); } });
+    const exec = { ...f.exec, agent: { id: f.parent.id, ctx } } as unknown as ToolExecution;
+    const { runId } = await f.registered.get("start_team_run")!.execute({ brief: "Evaluate", analystIds: ["analyst"], reviewerId: "reviewer" }, exec) as { runId: string };
+    await f.registered.get("run_team_stage")!.execute({ runId, stage: "analysis" }, exec);
+    expect(f.start).toHaveBeenCalledTimes(1);
+    expect((await f.registered.get("review_expert_plan")!.execute(request, exec) as { status: string }).status).toBe("completed");
+  });
 });

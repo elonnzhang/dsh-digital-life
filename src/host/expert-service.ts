@@ -97,14 +97,19 @@ export function createExpertService(options: Options) {
     if (open.length >= MAX_OPEN_RUNS)
       throw new Error(`digital-life: ${MAX_OPEN_RUNS} team runs are unfinished; continue or cancel one first: ${open.map((run) => `${run.id} (${run.status}): ${run.briefs[0]!.text.slice(0, 60)}`).join("; ")}`);
   };
-  const invokerFor = (parent: Agent) => {
+  /**
+   * Build the stage invoker for a session.
+   * @param host Plugin context that injects `subagents`; session agent contexts do not.
+   * @param parent Session agent the stage subagents belong to.
+   */
+  const invokerFor = (host: Agent["ctx"], parent: Agent) => {
     const settings = options.current();
-    const provider = parent.ctx.subagents.getProvider(settings.provider);
+    const provider = host.subagents.getProvider(settings.provider);
     if (!provider?.capabilities.persona || !provider.capabilities.toolFilter)
       throw new Error("digital-life: review provider must support persona and toolFilter");
     return async ({ member, kind, prompt, signal, outputSchema }: TeamInvocation): Promise<unknown> => {
       signal.throwIfAborted();
-      const child = await parent.ctx.subagents.start(settings.provider, {
+      const child = await host.subagents.start(settings.provider, {
         label: `${kind}: ${member.name}`,
         parent,
         signal,
@@ -138,12 +143,12 @@ export function createExpertService(options: Options) {
   const nextJson = (run: TeamRun) => nextStages(run).map((s) => ({ stage: s.stage, reason: s.reason, ...(s.memberIds === undefined ? {} : { memberIds: s.memberIds }) }));
   const result = (run: TeamRun) => ({ runId: run.id, status: run.status, nextStages: nextJson(run), markdown: renderTeamRunMarkdown(run) });
 
-  const review = async (request: ReviewRequest, exec: ToolExecution): Promise<TeamRun> => {
+  const review = async (host: Agent["ctx"], request: ReviewRequest, exec: ToolExecution): Promise<TeamRun> => {
     const parent = exec.agent;
     if (parent === undefined) throw new Error("digital-life: review requires an agent-backed session");
     const settings = options.current();
     validateReviewRequest(request, settings.records);
-    const invoke = invokerFor(parent);
+    const invoke = invokerFor(host, parent);
     const stateDir = options.stateDir();
     await ensureCapacity(stateDir);
     const controller = new AbortController();
@@ -206,7 +211,7 @@ export function createExpertService(options: Options) {
             render: (_args, value) => [{ type: "text", text: value.markdown }],
           },
           async execute(args, exec) {
-            const run = await review(args, exec);
+            const run = await review(target.ctx, args, exec);
             return { id: run.id, status: run.status, markdown: renderTeamRunMarkdown(run) };
           },
         })),
@@ -242,7 +247,7 @@ export function createExpertService(options: Options) {
             if (args.brief.trim() === "" || args.brief.length > 20_000) throw new Error("digital-life: brief must be 1-20000 characters");
             const settings = options.current();
             const stateDir = options.stateDir();
-            invokerFor(parent);
+            invokerFor(target.ctx, parent);
             await ensureCapacity(stateDir);
             const resolved = await resolveTeamMembers(lineupOf(args), args.brief, settings.records, settings.teams, stateDir);
             const run = createTeamRun({ id: `review-${randomUUID()}`, sessionId: parent.id, brief: args.brief, ...resolved });
@@ -281,7 +286,7 @@ export function createExpertService(options: Options) {
           output: runOutput,
           async execute(args, exec) {
             const run = await owned(args.runId, exec);
-            const invoke = invokerFor(exec.agent!);
+            const invoke = invokerFor(target.ctx, exec.agent!);
             const stateDir = options.stateDir();
             await holding(run.id, (cancel) => executeTeamStage({
               run, kind: args.stage as TeamStageKind, invoke, signal: exec.signal, cancel,
