@@ -5,34 +5,38 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { ToolExecution } from "@deepseek-ai/dsh-tools";
 import type { SubagentStartRequest } from "@deepseek-ai/dsh-subagent";
-import type { ReviewReport, ReviewRun } from "../src/expert-types.js";
+import type { ExpertTeam, ReviewReport, SynthesisReport } from "../src/expert-types.js";
 import type { DigitalLifeRecord } from "../src/types.js";
 import { createExpertService } from "../src/host/expert-service.js";
-import { readReviewRun, saveReviewRun } from "../src/host/review.js";
+import { readAnyReviewRun, readTeamRun, saveReviewRun } from "../src/host/review.js";
 import { packageBinding, packageFetcher } from "./expert-fixture.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 const report: ReviewReport = { summary: "Check evidence", findings: [], assumptions: ["Needs external validation"], disagreements: [], nextActions: ["Run a controlled comparison"] };
+const synthesis: SynthesisReport = { summary: "Synthesis", findings: [], assumptions: [], nextActions: [], disagreements: [], options: [], validationPlan: [], missingStages: [] };
 const records: DigitalLifeRecord[] = ["analyst", "reviewer"].map((id) => ({ id, name: id, description: id, category: "science", tags: [], persona: `Method ${id}`, enabled: true }));
 const request = { question: "Evaluate the study plan", expertIds: ["analyst"], reviewerId: "reviewer" };
 type RegisteredTool = { name: string; execute: (args: unknown, exec: ToolExecution) => Promise<unknown> };
 
-async function fixture(structured = true) {
+async function fixture(structured = true, teams: ExpertTeam[] = []) {
   const stateDir = await mkdtemp(join(tmpdir(), "expert-service-test-"));
   roots.push(stateDir);
   const registered = new Map<string, RegisteredTool>();
   const dispose = vi.fn(async () => {});
-  const start = vi.fn(async (_provider: string, _request: SubagentStartRequest) => ({
-    id: "child",
-    result: Promise.resolve({ stopReason: "completed", output: [{ type: "text", text: JSON.stringify(report) }], ...(structured ? { structured: report } : {}) }),
-    dispose,
-  }));
+  const start = vi.fn(async (_provider: string, input: SubagentStartRequest) => {
+    const value = input.label?.startsWith("synthesis") ? synthesis : report;
+    return {
+      id: "child",
+      result: Promise.resolve({ stopReason: "completed", output: [{ type: "text", text: JSON.stringify(value) }], ...(structured ? { structured: value } : {}) }),
+      dispose,
+    };
+  });
   const parent = { id: "session-fixture", ctx: {
     subagents: { getProvider: () => ({ capabilities: { persona: true, toolFilter: true, outputSchema: structured, agentOptions: true } }), start },
     tools: { register: (tool: RegisteredTool) => { registered.set(tool.name, tool); return () => registered.delete(tool.name); } },
   } } as unknown as Agent;
-  const service = createExpertService({ current: () => ({ provider: "spawn", maxBatchSize: 3, records, teams: [] }), stateDir: () => stateDir });
+  const service = createExpertService({ current: () => ({ provider: "spawn", maxBatchSize: 3, records, teams }), stateDir: () => stateDir });
   const unregister = service.registerTools(parent);
   const signal = new AbortController().signal;
   const exec = { agent: parent, signal } as ToolExecution;
@@ -58,7 +62,10 @@ describe("expert Host service", () => {
 
   it("registers real tool definitions and delegates isolated, structured stages", async () => {
     const f = await fixture();
-    expect([...f.registered.keys()]).toEqual(["read_expert_reference", "review_expert_plan", "read_expert_review"]);
+    expect([...f.registered.keys()]).toEqual([
+      "read_expert_reference", "review_expert_plan", "read_expert_review",
+      "start_team_run", "amend_team_brief", "run_team_stage", "read_team_run", "cancel_team_run",
+    ]);
     const result = await f.registered.get("review_expert_plan")!.execute(request, f.exec) as { id: string; status: string };
     expect(result.status).toBe("completed");
     expect(f.start).toHaveBeenCalledTimes(3);
@@ -98,22 +105,22 @@ describe("expert Host service", () => {
     const id = (listing.ok ? listing.value as Array<{ id: string }> : [])[0]!.id;
     expect(await f.service.rpc("review/cancel", { id })).toMatchObject({ ok: true });
     expect(await running).toMatchObject({ status: "cancelled" });
-    expect((await readReviewRun(id, f.stateDir)).status).toBe("cancelled");
+    expect((await readAnyReviewRun(id, f.stateDir)).status).toBe("cancelled");
     expect(f.start).toHaveBeenCalledTimes(1);
   });
 
-  it("marks unfinished runs from a stopped Host as failed instead of running forever", async () => {
+  it("returns runs left running by a stopped Host to open with a failed stage", async () => {
     const f = await fixture();
     const result = await f.registered.get("review_expert_plan")!.execute(request, f.exec) as { id: string };
-    const run = await readReviewRun(result.id, f.stateDir);
+    const run = await readTeamRun(result.id, f.stateDir);
     run.status = "running";
-    run.steps.at(-1)!.status = "running";
+    run.stages.at(-1)!.status = "running";
     await saveReviewRun(run, f.stateDir);
     const read = await f.service.rpc("review/read", { id: run.id });
-    expect(read).toMatchObject({ ok: true, value: { run: { status: "failed", error: expect.stringContaining("Host stopped") } } });
-    const saved: ReviewRun = await readReviewRun(run.id, f.stateDir);
-    expect(saved.steps[0]?.status).toBe("completed");
-    expect(saved.steps.at(-1)?.status).toBe("cancelled");
+    expect(read).toMatchObject({ ok: true, value: { run: { status: "open" } } });
+    const saved = await readTeamRun(run.id, f.stateDir);
+    expect(saved.stages[0]?.status).toBe("completed");
+    expect(saved.stages.at(-1)).toMatchObject({ status: "failed", error: "Host 已停止" });
   });
 
   it("returns structured errors for malformed RPC payloads", async () => {
@@ -123,5 +130,42 @@ describe("expert Host service", () => {
     expect(await f.service.rpc("expert/catalog", { ref: "../main" })).toMatchObject({ ok: false });
     expect(await f.service.rpc("expert/import", { slug: "test-expert", ref: "feature/" })).toMatchObject({ ok: false });
     expect(await f.service.rpc("review/cancel", { id: "missing" })).toMatchObject({ ok: false });
+  });
+
+  it("lets the owning session drive a team run stage by stage", async () => {
+    const f = await fixture();
+    const tool = (name: string) => f.registered.get(name)!;
+    const started = await tool("start_team_run").execute({ brief: "Evaluate the study plan", analystIds: ["analyst"], reviewerId: "reviewer" }, f.exec) as { runId: string; nextStages: Array<{ stage: string }> };
+    expect(started.nextStages.map((s) => s.stage)).toContain("analysis");
+    expect(await tool("amend_team_brief").execute({ runId: started.runId, text: "Budget is two weeks" }, f.exec)).toMatchObject({ briefVersion: 2 });
+    for (const stage of ["analysis", "review", "synthesis"])
+      await tool("run_team_stage").execute({ runId: started.runId, stage }, f.exec);
+    expect(await tool("read_team_run").execute({ runId: started.runId }, f.exec)).toMatchObject({ status: "completed", markdown: expect.stringContaining("input:brief@2") });
+    expect(f.start).toHaveBeenCalledTimes(3);
+    await expect(tool("run_team_stage").execute({ runId: started.runId, stage: "review" }, f.exec)).rejects.toThrow(/finished/);
+  });
+
+  it("rejects writes from another session, invalid stage order and a third open run", async () => {
+    const f = await fixture();
+    const tool = (name: string) => f.registered.get(name)!;
+    const args = { brief: "Evaluate the study plan", analystIds: ["analyst"], reviewerId: "reviewer" };
+    const { runId } = await tool("start_team_run").execute(args, f.exec) as { runId: string };
+    const other = { ...f.exec, agent: { ...f.parent, id: "other-session" } } as ToolExecution;
+    await expect(tool("run_team_stage").execute({ runId, stage: "analysis" }, other)).rejects.toThrow(/session/);
+    await expect(tool("cancel_team_run").execute({ runId }, other)).rejects.toThrow(/session/);
+    await expect(tool("read_team_run").execute({ runId }, other)).resolves.toMatchObject({ status: "open" });
+    await expect(tool("run_team_stage").execute({ runId, stage: "synthesis" }, f.exec)).rejects.toThrow(/nextStages.*analysis/s);
+    await tool("start_team_run").execute(args, f.exec);
+    await expect(tool("start_team_run").execute(args, f.exec)).rejects.toThrow(new RegExp(`${runId}.*Evaluate the study plan`, "s"));
+    expect(f.start).not.toHaveBeenCalled();
+  });
+
+  it("starts a saved team by id and cancels an open run from settings", async () => {
+    const f = await fixture(true, [{ id: "study", name: "Study", purpose: "Plans", analystIds: ["analyst"], reviewerId: "reviewer" }]);
+    const { runId } = await f.registered.get("start_team_run")!.execute({ brief: "Evaluate", teamId: "study" }, f.exec) as { runId: string };
+    expect((await readTeamRun(runId, f.stateDir)).teamId).toBe("study");
+    expect(await f.service.rpc("review/cancel", { id: runId })).toMatchObject({ ok: true });
+    expect((await readTeamRun(runId, f.stateDir)).status).toBe("cancelled");
+    expect(await f.service.rpc("review/read", { id: runId })).toMatchObject({ ok: true, value: { markdown: expect.stringContaining("cancelled") } });
   });
 });

@@ -1,10 +1,14 @@
+import { randomUUID } from "node:crypto";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { defineTool, type ToolExecution } from "@deepseek-ai/dsh-tools";
 import type { DigitalLifeRecord, ResolvedDigitalLifeSettings } from "../types.js";
-import type { ReviewRequest, ReviewRun } from "../expert-types.js";
+import type { AnyReviewRun, ReviewRequest, TeamRun, TeamStageKind } from "../expert-types.js";
 import { digitalLifeHome } from "./identity.js";
 import { importMimeograph, loadExpertCatalog, loadExpertPackage, readExpertReference, recordForPackage, resolveRevision } from "./expert-packages.js";
-import { listReviewRuns, readReviewRun, renderReviewMarkdown, REVIEW_OUTPUT_SCHEMA, runExpertReview, saveReviewRun, validateReviewRequest } from "./review.js";
+import { listReviewRuns, readAnyReviewRun, readTeamRun, renderReviewMarkdown, saveReviewRun, validateReviewRequest } from "./review.js";
+import { amendBrief, createTeamRun, expireIfIdle, isTerminal, nextStages, recoverInterrupted, TeamRunError, type NextStage } from "./team-run.js";
+import { executeTeamStage, resolveTeamMembers, runExpertReview, type TeamInvocation, type TeamLineup } from "./team-exec.js";
+import { renderTeamRunMarkdown } from "./team-render.js";
 
 /** Branch used when the client does not name one. */
 const DEFAULT_REF = "main";
@@ -24,85 +28,151 @@ function string(value: unknown, label: string): string {
   return value;
 }
 
+const STAGES: readonly TeamStageKind[] = ["brief", "analysis", "cross-critique", "review", "synthesis"];
+const MAX_OPEN_RUNS = 2;
+
+function describeNext(next: readonly NextStage[]): string {
+  return next.length === 0 ? "nextStages: none" : `nextStages: ${next.map((s) => `${s.stage}${s.memberIds === undefined ? "" : `(${s.memberIds.join(",")})`} — ${s.reason}`).join("; ")}`;
+}
+
+/** Surface state-machine refusals with the stages the main agent can run instead. */
+function explain(error: unknown): never {
+  if (error instanceof TeamRunError) throw new Error(`${error.message}. ${describeNext(error.nextStages)}`);
+  throw error;
+}
+
+function lineupOf(args: { teamId?: string; analystIds?: string[]; reviewerId?: string; coordinatorId?: string; responsibilities?: unknown }): TeamLineup {
+  if (args.teamId !== undefined) {
+    if (args.analystIds !== undefined || args.reviewerId !== undefined) throw new Error("digital-life: pass either teamId or analystIds/reviewerId, not both");
+    return { teamId: args.teamId };
+  }
+  if (args.analystIds === undefined || args.reviewerId === undefined) throw new Error("digital-life: pass teamId or analystIds and reviewerId");
+  const responsibilities = args.responsibilities;
+  if (responsibilities !== undefined && (typeof responsibilities !== "object" || responsibilities === null || Array.isArray(responsibilities) ||
+      Object.values(responsibilities).some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200)))
+    throw new Error("digital-life: responsibilities must map member ids to 1-200 characters");
+  return {
+    analystIds: args.analystIds, reviewerId: args.reviewerId,
+    ...(args.coordinatorId === undefined ? {} : { coordinatorId: args.coordinatorId }),
+    ...(responsibilities === undefined ? {} : { responsibilities: responsibilities as Record<string, string> }),
+  };
+}
+
 export function createExpertService(options: Options) {
-  const active = new Map<string, { controller: AbortController; home: string }>();
-  const controllers = new Set<AbortController>();
   const recordFor = (id: string): DigitalLifeRecord => {
     const record = options.current().records.find((item) => item.id === id && item.enabled);
     if (record === undefined) throw new Error(`digital-life: enabled expert not found: ${id}`);
     return record;
   };
-  const recover = async (run: ReviewRun, stateDir?: string): Promise<ReviewRun> => {
-    if (run.status === "running" && !active.has(run.id)) {
-      run.status = "failed";
-      run.error = "Host stopped before this review finished. Start a new review to retry.";
-      run.updatedAt = new Date().toISOString();
-      for (const step of run.steps) if (step.status === "running" || step.status === "pending") step.status = "cancelled";
-      await saveReviewRun(run, stateDir);
-    }
+  // runId → controller for explicit cancellation of the stage currently executing.
+  const active = new Map<string, { controller: AbortController; home: string }>();
+  /** Bring a stored run up to date: recover Host stops, lazily expire idle runs, keep v1 legacy rules. */
+  const refresh = async (run: AnyReviewRun, stateDir?: string): Promise<AnyReviewRun> => {
+    if (active.has(run.id)) return run;
+    let changed = false;
+    if (run.schemaVersion === 1) {
+      if (run.status === "running") {
+        run.status = "failed";
+        run.error = "Host stopped before this review finished. Start a new review to retry.";
+        for (const step of run.steps) if (step.status === "running" || step.status === "pending") step.status = "cancelled";
+        changed = true;
+      }
+    } else changed = recoverInterrupted(run) || expireIfIdle(run);
+    if (changed) { run.updatedAt = new Date().toISOString(); await saveReviewRun(run, stateDir); }
     return run;
   };
+  const owned = async (runId: string, exec: ToolExecution): Promise<TeamRun> => {
+    const stateDir = options.stateDir();
+    const run = await refresh(await readTeamRun(runId, stateDir), stateDir) as TeamRun;
+    if (exec.agent?.id !== run.sessionId) throw new Error("digital-life: only the session that started this team run can change it");
+    return run;
+  };
+  const ensureCapacity = async (stateDir?: string): Promise<void> => {
+    const open: TeamRun[] = [];
+    for (const summary of await listReviewRuns(stateDir)) {
+      if (summary.schemaVersion !== 2 || isTerminal(summary.status as TeamRun["status"])) continue;
+      const run = await refresh(await readAnyReviewRun(summary.id, stateDir), stateDir);
+      if (run.schemaVersion === 2 && !isTerminal(run.status)) open.push(run);
+    }
+    if (open.length >= MAX_OPEN_RUNS)
+      throw new Error(`digital-life: ${MAX_OPEN_RUNS} team runs are unfinished; continue or cancel one first: ${open.map((run) => `${run.id} (${run.status}): ${run.briefs[0]!.text.slice(0, 60)}`).join("; ")}`);
+  };
+  const invokerFor = (parent: Agent) => {
+    const settings = options.current();
+    const provider = parent.ctx.subagents.getProvider(settings.provider);
+    if (!provider?.capabilities.persona || !provider.capabilities.toolFilter)
+      throw new Error("digital-life: review provider must support persona and toolFilter");
+    return async ({ member, kind, prompt, signal, outputSchema }: TeamInvocation): Promise<unknown> => {
+      signal.throwIfAborted();
+      const child = await parent.ctx.subagents.start(settings.provider, {
+        label: `${kind}: ${member.name}`,
+        parent,
+        signal,
+        persona: member.identity,
+        prompt: [{ type: "text", text: prompt }],
+        // Evidence is supplied by the Host; stages cannot recursively delegate or take external actions.
+        toolFilter: { allow: [] },
+        ...(provider.capabilities.agentOptions ? { agentOptions: { ...member.model, maxTokens: 4096 } }
+          : member.model === undefined ? {} : { agentOptions: member.model }),
+        ...(provider.capabilities.outputSchema ? { outputSchema } : {}),
+      });
+      try {
+        const result = await child.result;
+        if (result.stopReason !== "completed") throw new Error(`Review stage ended with ${result.stopReason}`);
+        if (result.structured !== undefined) return result.structured;
+        const text = result.output.filter((block) => block.type === "text").map((block) => block.text).join("").trim();
+        return JSON.parse(text);
+      } finally {
+        await child.dispose();
+      }
+    };
+  };
+  /** Run `work` while holding the run's lock and exposing an explicit-cancel controller. */
+  const holding = async <T,>(runId: string, work: (cancel: AbortSignal) => Promise<T>): Promise<T> => {
+    if (active.has(runId)) throw new Error("digital-life: another stage of this run is still running");
+    const controller = new AbortController();
+    active.set(runId, { controller, home: digitalLifeHome(process.env, options.stateDir()) });
+    try { return await work(controller.signal); } finally { active.delete(runId); }
+  };
+  // Plain object literals so the `json` output schema (JsonValue) accepts them.
+  const nextJson = (run: TeamRun) => nextStages(run).map((s) => ({ stage: s.stage, reason: s.reason, ...(s.memberIds === undefined ? {} : { memberIds: s.memberIds }) }));
+  const result = (run: TeamRun) => ({ runId: run.id, status: run.status, nextStages: nextJson(run), markdown: renderTeamRunMarkdown(run) });
 
-  const review = async (request: ReviewRequest, exec: ToolExecution): Promise<ReviewRun> => {
+  const review = async (request: ReviewRequest, exec: ToolExecution): Promise<TeamRun> => {
     const parent = exec.agent;
     if (parent === undefined) throw new Error("digital-life: review requires an agent-backed session");
     const settings = options.current();
     validateReviewRequest(request, settings.records);
-    const provider = parent.ctx.subagents.getProvider(settings.provider);
-    if (!provider?.capabilities.persona || !provider.capabilities.toolFilter)
-      throw new Error("digital-life: review provider must support persona and toolFilter");
-    if (controllers.size >= 2) throw new Error("digital-life: two reviews are already running; wait or cancel one");
+    const invoke = invokerFor(parent);
     const stateDir = options.stateDir();
+    await ensureCapacity(stateDir);
     const controller = new AbortController();
-    controllers.add(controller);
     let runId: string | undefined;
     try {
       return await runExpertReview({
-        request,
-        records: settings.records,
-        sessionId: parent.id,
+        request, records: settings.records, teams: settings.teams, sessionId: parent.id, invoke,
         signal: AbortSignal.any([exec.signal, controller.signal]),
         ...(stateDir === undefined ? {} : { stateDir }),
-        onStart(id) {
-          runId = id;
-          active.set(id, { controller, home: digitalLifeHome(process.env, stateDir) });
-        },
-        async invoke({ record, identity, role, prompt, signal }) {
-          signal.throwIfAborted();
-          const child = await parent.ctx.subagents.start(settings.provider, {
-            label: `${role}: ${record.name}`,
-            parent,
-            signal,
-            persona: identity,
-            prompt: [{ type: "text", text: prompt }],
-            // Review evidence is supplied by the Host; stages cannot recursively delegate or take external actions.
-            toolFilter: { allow: [] },
-            ...(provider.capabilities.agentOptions ? { agentOptions: { ...record.model, maxTokens: 4096 } }
-              : record.model === undefined ? {} : { agentOptions: record.model }),
-            ...(provider.capabilities.outputSchema ? { outputSchema: REVIEW_OUTPUT_SCHEMA } : {}),
-          });
-          try {
-            const result = await child.result;
-            if (result.stopReason !== "completed") throw new Error(`Review stage ended with ${result.stopReason}`);
-            if (result.structured !== undefined) return result.structured;
-            const text = result.output.filter((block) => block.type === "text").map((block) => block.text).join("").trim();
-            return JSON.parse(text);
-          } finally {
-            await child.dispose();
-          }
-        },
+        onStart(id) { runId = id; active.set(id, { controller, home: digitalLifeHome(process.env, stateDir) }); },
       });
     } finally {
-      controllers.delete(controller);
       if (runId !== undefined) active.delete(runId);
     }
   };
 
   return {
     dispose() {
-      for (const controller of controllers) controller.abort(new Error("Expert service stopped"));
+      for (const job of active.values()) job.controller.abort(new Error("Expert service stopped"));
     },
     registerTools(target: Pick<Agent, "ctx">): () => void {
+      const runOutput = {
+        schema: { type: "object", additionalProperties: false, properties: {
+          runId: { type: "string", required: true }, status: { type: "string", required: true },
+          nextStages: { type: "json", required: true }, markdown: { type: "string", required: true },
+        } },
+        render: (_args: unknown, value: { markdown: string }) => [{ type: "text" as const, text: value.markdown }],
+      } as const;
+      const ORDER = "推荐顺序：brief（可选）→ 若有补问先交给用户，回答后 amend_team_brief → analysis → cross-critique（分析专家≥2时建议）→ review → synthesis。如实转述 synthesis 报告，你自己的补充单独标明。";
       const disposers = [
         target.ctx.tools.register(defineTool({
           name: "read_expert_reference",
@@ -125,7 +195,7 @@ export function createExpertService(options: Options) {
         })),
         target.ctx.tools.register(defineTool({
           name: "review_expert_plan",
-          description: "运行固定的科研与技术方案评审：1-3 位专家独立分析，另一位审查并汇总。保留报告、方法引用与失败。一次最多五次子代理调用，五分钟超时。",
+          description: "固定顺序的方案评审快捷方式：1-3 位专家独立分析，审查者审查并汇总（start → analysis → review → synthesis，最多五次子代理调用）。需要补问、交叉批评或重试时改用 start_team_run。",
           parameters: {
             question: { type: "string", required: true, description: "完整方案、目标、资料和约束；最多20000字符" },
             expertIds: { type: "array", required: true, items: { type: "string" }, description: "1-3 位已启用分析专家 ID" },
@@ -137,7 +207,7 @@ export function createExpertService(options: Options) {
           },
           async execute(args, exec) {
             const run = await review(args, exec);
-            return { id: run.id, status: run.status, markdown: renderReviewMarkdown(run) };
+            return { id: run.id, status: run.status, markdown: renderTeamRunMarkdown(run) };
           },
         })),
         target.ctx.tools.register(defineTool({
@@ -150,8 +220,105 @@ export function createExpertService(options: Options) {
           },
           async execute(args) {
             const stateDir = options.stateDir();
-            const run = await recover(await readReviewRun(args.id, stateDir), stateDir);
-            return { id: run.id, status: run.status, markdown: renderReviewMarkdown(run) };
+            const run = await refresh(await readAnyReviewRun(args.id, stateDir), stateDir);
+            return { id: run.id, status: run.status, markdown: run.schemaVersion === 1 ? renderReviewMarkdown(run) : renderTeamRunMarkdown(run) };
+          },
+        })),
+        target.ctx.tools.register(defineTool({
+          name: "start_team_run",
+          description: `创建一次专家团运行（不调用子代理）。传 teamId 使用已保存的团队，或传 analystIds + reviewerId（可选 coordinatorId、responsibilities）组建临时阵容。${ORDER}`,
+          parameters: {
+            brief: { type: "string", required: true, description: "完整方案、目标、资料和约束；最多20000字符" },
+            teamId: { type: "string", description: "已保存的团队 ID；与 analystIds/reviewerId 二选一" },
+            analystIds: { type: "array", items: { type: "string" }, description: "1-3 位已启用分析专家 ID" },
+            reviewerId: { type: "string", description: "与分析专家不同的审查专家 ID" },
+            coordinatorId: { type: "string", description: "协调者 ID；省略时由审查者兼任" },
+            responsibilities: { type: "json", description: "成员 ID → 职责（1-200 字符）" },
+          },
+          output: runOutput,
+          async execute(args, exec) {
+            const parent = exec.agent;
+            if (parent === undefined) throw new Error("digital-life: team runs require an agent-backed session");
+            if (args.brief.trim() === "" || args.brief.length > 20_000) throw new Error("digital-life: brief must be 1-20000 characters");
+            const settings = options.current();
+            const stateDir = options.stateDir();
+            invokerFor(parent);
+            await ensureCapacity(stateDir);
+            const resolved = await resolveTeamMembers(lineupOf(args), args.brief, settings.records, settings.teams, stateDir);
+            const run = createTeamRun({ id: `review-${randomUUID()}`, sessionId: parent.id, brief: args.brief, ...resolved });
+            await saveReviewRun(run, stateDir);
+            return { ...result(run), markdown: `${renderTeamRunMarkdown(run)}\n成员：${run.members.map((m) => `${m.id}（${m.roles.join("/")}：${m.responsibility}）`).join("，")}` };
+          },
+        })),
+        target.ctx.tools.register(defineTool({
+          name: "amend_team_brief",
+          description: "为团队运行追加一个简报版本，例如用户对补问的回答。第一个 analysis 开始后会被拒绝。",
+          parameters: {
+            runId: { type: "string", required: true, description: "start_team_run 返回的运行 ID" },
+            text: { type: "string", required: true, description: "追加的简报内容" },
+          },
+          output: {
+            schema: { type: "object", additionalProperties: false, properties: { briefVersion: { type: "number", required: true }, nextStages: { type: "json", required: true } } },
+            render: (_args, value) => [{ type: "text", text: `brief@${value.briefVersion}` }],
+          },
+          async execute(args, exec) {
+            const run = await owned(args.runId, exec);
+            if (active.has(run.id)) throw new Error("digital-life: another stage of this run is still running");
+            try { amendBrief(run, args.text); } catch (error) { explain(error); }
+            run.updatedAt = new Date().toISOString();
+            await saveReviewRun(run, options.stateDir());
+            return { briefVersion: run.briefs.at(-1)!.version, nextStages: nextJson(run) };
+          },
+        })),
+        target.ctx.tools.register(defineTool({
+          name: "run_team_stage",
+          description: `执行团队运行的一个阶段并返回该阶段报告与 nextStages。memberIds 仅用于 analysis 和 cross-critique（例如只重试失败的分析专家）。前置条件不满足时报错并列出可执行阶段。${ORDER}`,
+          parameters: {
+            runId: { type: "string", required: true, description: "start_team_run 返回的运行 ID" },
+            stage: { type: "string", enum: STAGES, required: true, description: "brief、analysis、cross-critique、review 或 synthesis" },
+            memberIds: { type: "array", items: { type: "string" }, description: "本次运行的分析专家 ID 子集" },
+          },
+          output: runOutput,
+          async execute(args, exec) {
+            const run = await owned(args.runId, exec);
+            const invoke = invokerFor(exec.agent!);
+            const stateDir = options.stateDir();
+            await holding(run.id, (cancel) => executeTeamStage({
+              run, kind: args.stage as TeamStageKind, invoke, signal: exec.signal, cancel,
+              ...(args.memberIds === undefined ? {} : { memberIds: args.memberIds }),
+              ...(stateDir === undefined ? {} : { stateDir }),
+            })).catch(explain);
+            return result(run);
+          },
+        })),
+        target.ctx.tools.register(defineTool({
+          name: "read_team_run",
+          description: "读取团队运行的状态、nextStages 与完整 Markdown 报告。任何会话都可读取。",
+          parameters: { runId: { type: "string", required: true, description: "review- 开头的运行 ID" } },
+          output: runOutput,
+          async execute(args) {
+            const stateDir = options.stateDir();
+            return result(await refresh(await readTeamRun(args.runId, stateDir), stateDir) as TeamRun);
+          },
+        })),
+        target.ctx.tools.register(defineTool({
+          name: "cancel_team_run",
+          description: "取消团队运行。正在执行的阶段标记为 cancelled，已完成的报告保留。",
+          parameters: { runId: { type: "string", required: true, description: "要取消的运行 ID" } },
+          output: runOutput,
+          async execute(args, exec) {
+            const run = await owned(args.runId, exec);
+            const job = active.get(run.id);
+            if (job !== undefined) {
+              // The executing stage observes the abort, marks itself cancelled and saves the run.
+              job.controller.abort(new Error("Team run cancelled"));
+              return { runId: run.id, status: "cancelled", nextStages: [], markdown: "已请求取消；正在执行的阶段会标记为 cancelled。" };
+            }
+            if (isTerminal(run.status)) throw new Error(`digital-life: team run ${run.id} is finished (${run.status})`);
+            run.status = "cancelled";
+            run.updatedAt = new Date().toISOString();
+            await saveReviewRun(run, options.stateDir());
+            return result(run);
           },
         })),
       ];
@@ -176,20 +343,30 @@ export function createExpertService(options: Options) {
         } else if (endpoint === "review/list") {
           const summaries = await listReviewRuns(stateDir);
           for (const summary of summaries) {
-            if (summary.status === "running" && !active.has(summary.id)) {
-              const run = await recover(await readReviewRun(summary.id, stateDir), stateDir);
+            const pending = summary.schemaVersion === 1 ? summary.status === "running" : !isTerminal(summary.status as TeamRun["status"]);
+            if (pending && !active.has(summary.id)) {
+              const run = await refresh(await readAnyReviewRun(summary.id, stateDir), stateDir);
               summary.status = run.status;
               summary.updatedAt = run.updatedAt;
             }
           }
           value = summaries;
         } else if (endpoint === "review/read") {
-          const run = await recover(await readReviewRun(string(input.id, "id"), stateDir), stateDir);
-          value = { run, markdown: renderReviewMarkdown(run) };
+          const run = await refresh(await readAnyReviewRun(string(input.id, "id"), stateDir), stateDir);
+          value = { run, markdown: run.schemaVersion === 1 ? renderReviewMarkdown(run) : renderTeamRunMarkdown(run) };
         } else if (endpoint === "review/cancel") {
-          const job = active.get(string(input.id, "id"));
-          if (job === undefined || job.home !== digitalLifeHome(process.env, stateDir)) throw new Error("digital-life: review is not running");
-          job.controller.abort(new Error("Review cancelled by user"));
+          const id = string(input.id, "id");
+          const job = active.get(id);
+          if (job !== undefined) {
+            if (job.home !== digitalLifeHome(process.env, stateDir)) throw new Error("digital-life: review is not running");
+            job.controller.abort(new Error("Review cancelled by user"));
+          } else {
+            const run = await refresh(await readAnyReviewRun(id, stateDir), stateDir);
+            if (run.schemaVersion !== 2 || isTerminal(run.status)) throw new Error("digital-life: review is not running");
+            run.status = "cancelled";
+            run.updatedAt = new Date().toISOString();
+            await saveReviewRun(run, stateDir);
+          }
           value = { cancelled: true };
         } else throw new Error(`digital-life: unknown expert endpoint ${endpoint}`);
         return { ok: true as const, value };
