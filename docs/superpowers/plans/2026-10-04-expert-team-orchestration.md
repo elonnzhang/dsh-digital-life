@@ -491,7 +491,7 @@ describe("team run state machine", () => {
   it("rejects requests over budget whole and fails when budget runs out", () => {
     const target = run(["alpha", "beta", "gamma"]);
     target.budget.maxCalls = 4;
-    execute(target, "analysis", ["alpha", "beta", "gamma"]);
+    execute(target, "analysis");
     expect(() => planStage(target, "cross-critique")).toThrow(/budget/);
     expect(target.budget.callsUsed).toBe(3);
     execute(target, "review");
