@@ -198,9 +198,14 @@ function enforceReadOnlySandbox(session: Session): void {
   setSandboxMode(session, "read-only");
 }
 
+/** Main-agent rule for `@<team id>` mentions; the Host enforces stage order, isolation and budget. */
+const TEAM_ROUTING_RULE =
+  "- 当用户使用 @<团队ID> 点名已保存的专家团时，必须调用 start_team_run（传入 teamId），再按推荐顺序调用 run_team_stage；若简报产生补问，先交给用户，回答后调用 amend_team_brief 再继续；如实转述汇总，自己的补充单独标明。";
+
 const DIGITAL_LIFE_MODE_PROMPT = [
   "你当前处于数字生命模式：本会话已绑定一位数字生命，身份、人格和协作规则以下方的数字生命设定为准。",
   "本会话的文件沙箱是只读的：可以读取文件，但不能修改；需要改动时给出方案，由用户自行执行。",
+  TEAM_ROUTING_RULE,
 ].join("\n");
 
 const OPENING_MESSAGE_SOURCE = { provider: "digital-life", model: "opening" } as const;
@@ -293,6 +298,7 @@ export function independentSystemPromptPartsFor(
       `- 当用户使用 @<数字生命ID> 点名其他数字生命（不是 @${record.id}）时，必须调用 consult_digital_life，将被点名的 ID 和用户问题原样传入，再如实转述对方的回答；你的补充意见要单独标明，不得自行模拟或代替对方回答。`,
       `- 当用户点名 @${record.id} 时，直接以当前身份回答，不要调用 consult_digital_life 咨询自己。`,
       "- 当用户要求咨询某个数字生命类别时，调用 consult_digital_life_category，忠实呈现各自观点，并单独列出分歧和未成功的咨询。",
+      TEAM_ROUTING_RULE,
     ].join("\n"),
   ].filter(Boolean).join("\n\n");
   return { pre, persona: identity.trim(), suf };

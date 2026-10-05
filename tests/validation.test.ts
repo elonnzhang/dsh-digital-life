@@ -88,6 +88,9 @@ describe('digital-life configuration', () => {
     expect(prompt).toContain('必须调用 consult_digital_life')
     expect(prompt).toContain(`@${record.id}`)
     expect(prompt).toContain('调用 consult_digital_life_category')
+    expect(prompt).toContain('@<团队ID>')
+    expect(prompt).toContain('start_team_run')
+    expect(prompt).toContain('amend_team_brief')
   })
 })
 
