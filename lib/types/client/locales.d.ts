@@ -3,6 +3,7 @@ import type { DigitalLifeRecord } from "../types.js";
 /** UI copy for the digital-life settings and session controls. */
 export declare const zh: {
     readonly nav: "数字生命";
+    readonly expertAiPanel: "专家 AI";
     readonly title: "数字生命";
     readonly intro: "创建可由主代理通过工具咨询的人格代理，也可在输入框中使用 @id。";
     readonly add: "新增数字生命";
@@ -162,6 +163,7 @@ export declare const zh: {
     readonly saveAsTeam: "另存为专家团";
     readonly lineupBlocked: "部分成员不可用，请先启用或编辑团队。";
     readonly openReport: "查看报告";
+    readonly enterSession: "进入会话";
     readonly reportTitle: "评审报告";
     readonly stageBrief: "简报";
     readonly stageAnalysis: "分析";
@@ -200,6 +202,7 @@ export declare const zh: {
 export type DigitalLifeKey = keyof typeof zh;
 export declare const en: {
     nav: string;
+    expertAiPanel: string;
     title: string;
     intro: string;
     add: string;
@@ -359,6 +362,7 @@ export declare const en: {
     saveAsTeam: string;
     lineupBlocked: string;
     openReport: string;
+    enterSession: string;
     reportTitle: string;
     stageBrief: string;
     stageAnalysis: string;

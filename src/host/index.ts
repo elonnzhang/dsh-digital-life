@@ -15,6 +15,7 @@ import { createProject, identityFor, initializeIdentities, reconcileIdentities }
 import {
   deleteBinding,
   loadBinding,
+  preserveLegacyBinding,
   saveBinding,
   type DigitalLifeBinding,
   type LegacyDigitalLifeBinding,
@@ -623,25 +624,27 @@ export function apply(ctx: Context, config: Config): void {
       ...teamSystemPromptPartsFor(team, settings.records),
     };
   };
-  // A binding saved before the split is rebuilt from its record and saved again;
-  // when the record is gone or unreadable the old text is kept rather than lost.
+  // Old bindings contain a complete prompt snapshot. Preserve it even if the
+  // expert record has changed since the session was created.
   const upgradeBinding = async (
     sessionId: string,
     binding: DigitalLifeBinding | LegacyDigitalLifeBinding,
   ): Promise<DigitalLifeBinding> => {
     if (!("prompt" in binding)) return binding;
+    const upgraded = preserveLegacyBinding(binding);
     try {
-      const upgraded = await bindingFor(findRecord(resolved(source()), binding.recordId));
       await saveBinding(sessionId, upgraded, stateDir());
-      return upgraded;
     } catch (error) {
       ctx.logger.warn(`digital-life: kept the saved prompt of session "${sessionId}"`, error);
-      return { recordId: binding.recordId, pre: binding.prompt, persona: "", suf: "" };
     }
+    return upgraded;
   };
   ctx.on("agent/created", async ({ agent }) => {
     const binding = await loadBinding(agent.id, stateDir());
-    if (binding !== undefined) bindAgent(agent, await upgradeBinding(agent.id, binding));
+    if (binding !== undefined) {
+      try { bindAgent(agent, await upgradeBinding(agent.id, binding)); }
+      catch (error) { ctx.logger.warn(`digital-life: could not restore session "${agent.id}"`, error); }
+    }
     return undefined;
   });
   // Reactive live read of the current settings from the fiber's volatile refs.

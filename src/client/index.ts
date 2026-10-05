@@ -38,7 +38,8 @@ import {
 import { en, NS, zh, type DigitalLifeKey } from "./locales.js";
 import { reviewSubmission, type ExpertWorkbenchApi } from "./ExpertWorkbench.js";
 import { mentionCandidates } from "./teams.js";
-import type { ExpertCatalogEntry, ReviewRun, ReviewSummary } from "../expert-types.js";
+import { ExpertAIPanel, ExpertAIPanelIcon } from "./ExpertAIPanel.js";
+import type { AnyReviewRun, ExpertCatalogEntry, ReviewSummary } from "../expert-types.js";
 
 declare module "@deepseek-ai/dsh-client-ui-slots" {
   interface LocaleNamespaceMap {
@@ -55,6 +56,7 @@ declare module "@deepseek-ai/dsh-api-session-controller/client" {
 
 /** The Host plugin entry id whose settings this Client half edits. */
 const DIGITAL_LIFE_ENTRY_ID = DIGITAL_LIFE_NAMESPACE;
+const EXPERT_AI_PANEL_ID = "expert-ai";
 
 export const inject = [
   "slots",
@@ -120,8 +122,11 @@ export function apply(ctx: ClientContext): void {
       } finally { reference.release(); }
     },
     listReviews: () => callExpert<ReviewSummary[]>("review/list", {}),
-    readReview: (id) => callExpert<{ run: ReviewRun; markdown: string }>("review/read", { id }),
+    readReview: (id) => callExpert<{ run: AnyReviewRun; markdown: string }>("review/read", { id }),
     async cancelReview(id) { await callExpert("review/cancel", { id }); },
+    openReviewSession(sessionId) {
+      ctx.uiWorkspace.openSession(sessionId as SessionId);
+    },
   };
   const injected = (): DigitalLifeSettingSectionInjected => ({
     hooks: { settings: form },
@@ -230,6 +235,30 @@ export function apply(ctx: ClientContext): void {
     ),
   );
   installAgentPresetSelector(ctx, records, t, openDigitalLifeSession);
+
+  // Keep the Expert AI navigation entry available while its full surface is
+  // being implemented; the keyed panel is intentionally empty for now.
+  ctx.slots.inject("main", () =>
+    ctx.slots.register(
+      {
+        name: "main",
+        key: EXPERT_AI_PANEL_ID,
+      },
+      ExpertAIPanel,
+    ),
+  );
+  ctx.slots.inject("sidebar.panellist", () =>
+    ctx.slots.register(
+      {
+        name: "sidebar.panellist",
+        id: EXPERT_AI_PANEL_ID,
+        order: 20,
+        label: () => t("expertAiPanel"),
+        locale: NS,
+      },
+      ExpertAIPanelIcon,
+    ),
+  );
 
   // The nav-row icon option arrives with the harness after 0.2.0-rc.2; older
   // hosts drop it and draw their default glyph.

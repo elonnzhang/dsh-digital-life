@@ -97,6 +97,8 @@ export function planStage(run: TeamRun, kind: TeamStageKind, memberIds?: readonl
     throw reject("memberIds only applies to analysis and cross-critique");
   if (memberIds !== undefined && (memberIds.length === 0 || memberIds.some((id) => !analysts.includes(id))))
     throw reject("memberIds must name analysts of this run");
+  if (memberIds !== undefined && new Set(memberIds).size !== memberIds.length)
+    throw reject("memberIds must be unique");
   const reviewer = withRole(run, "reviewer")[0]!;
   const call = (expertId: string, inputStageIds: string[], evidenceIds: string[], requiredMissing: string[] = []): StageCall => ({
     id: `${PREFIX[kind]}-${expertId}-${run.stages.filter((s) => s.kind === kind && s.expertId === expertId).length + 1}`,

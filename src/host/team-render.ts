@@ -49,7 +49,7 @@ export function renderTeamRunMarkdown(run: TeamRun): string {
   return [
     "# Expert team review",
     `Run: ${run.id}${run.teamId === undefined ? "" : ` · team ${run.teamId}`}`,
-    `Status: ${run.status} · 调用 ${run.budget.callsUsed}/${run.budget.maxCalls} · 用时 ${clock(run.budget.activeMs)}/${clock(run.budget.maxActiveMs)}`,
+    `Status: ${run.status} · Calls ${run.budget.callsUsed}/${run.budget.maxCalls} · Time ${clock(run.budget.activeMs)}/${clock(run.budget.maxActiveMs)} · 调用 ${run.budget.callsUsed}/${run.budget.maxCalls} · 用时 ${clock(run.budget.activeMs)}/${clock(run.budget.maxActiveMs)}`,
     ...(run.error === undefined ? [] : [`Error: ${run.error}`]),
     ...(synthesis === undefined ? [] : section(synthesis)),
     "## Briefs",

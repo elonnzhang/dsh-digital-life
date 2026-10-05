@@ -319,9 +319,9 @@ export async function importMimeograph(
 
 /**
  * Build the settings record for an imported package.
- * @param ref Branch or tag the package was imported from.
+ * @param ref Branch or tag the package was imported from; defaults to the pinned commit for older callers.
  */
-export function recordForPackage(manifest: ExpertPackageManifest, ref: string): DigitalLifeRecord {
+export function recordForPackage(manifest: ExpertPackageManifest, ref = manifest.revision): DigitalLifeRecord {
   const expertPackage: ExpertPackageBinding = { source: manifest.source, slug: manifest.slug, revision: manifest.revision, ref };
   validatePackageBinding(expertPackage);
   return {

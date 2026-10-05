@@ -18,6 +18,10 @@ describe("expert team helpers", () => {
       { id: "gone", kind: "missing" },
     ]);
     expect(teamIssues(team, records.map((record) => ({ ...record, enabled: true })))).toEqual([]);
+    expect(teamIssues({ ...team, coordinatorId: "gone" }, records)).toEqual([
+      { id: "b", kind: "disabled" },
+      { id: "gone", kind: "missing" },
+    ]);
   });
 
   it("normalizes drafts into a team the Host accepts", () => {
@@ -84,6 +88,7 @@ describe("expert team helpers", () => {
     expect(teamsUsing("c", [team])).toEqual([team]);
     expect(teamsUsing("a", [team])).toEqual([team]);
     expect(teamsUsing("x", [team])).toEqual([]);
+    expect(teamsUsing("lead", [{ ...team, coordinatorId: "lead" }])).toEqual([{ ...team, coordinatorId: "lead" }]);
   });
 
   it("suggests free ids", () => {

@@ -4,6 +4,6 @@ export type * from "./types.js";
 export type * from "./expert-types.js";
 export { MIMEOGRAPHS_REVISION } from "./expert-types.js";
 export { importMimeograph, loadExpertCatalog, readExpertReference, recordForPackage } from "./host/expert-packages.js";
-export { readReviewRun, readAnyReviewRun, renderReviewMarkdown } from "./host/review.js";
-export { runExpertReview } from "./host/team-exec.js";
+export { runExpertReview, readReviewRun, readAnyReviewRun, renderReviewMarkdown } from "./host/review.js";
+export { runExpertReview as runExpertTeamReview } from "./host/team-exec.js";
 //# sourceMappingURL=index.d.ts.map

@@ -170,9 +170,13 @@ export interface RunReviewOptions {
   teams: readonly ExpertTeam[];
   sessionId: string;
   signal: AbortSignal;
+  /** Explicit user cancellation; Host shutdown uses `signal` instead so runs remain recoverable. */
+  cancel?: AbortSignal;
   invoke: (invocation: TeamInvocation) => Promise<unknown>;
   stateDir?: string;
   onStart?: (runId: string) => void;
+  /** Persist the newly-created run, optionally under an admission lock. */
+  persistStart?: (run: TeamRun) => Promise<void>;
 }
 
 /** `review_expert_plan`: start → analysis → review → synthesis within one tool call, at most 5 subagent calls. */
@@ -187,14 +191,15 @@ export async function runExpertReview(options: RunReviewOptions): Promise<TeamRu
     budget: { maxCalls: 5, maxActiveMs: 600_000 },
   });
   options.onStart?.(run.id);
-  await saveReviewRun(run, options.stateDir);
+  await (options.persistStart === undefined ? saveReviewRun(run, options.stateDir) : options.persistStart(run));
   // The shortcut owns the whole run, so a tool-call abort ends it instead of leaving it open.
   const never = new AbortController().signal;
   const stage = (kind: TeamStageKind) => executeTeamStage({
-    run, kind, invoke: options.invoke, signal: never, cancel: options.signal,
+    run, kind, invoke: options.invoke, signal: options.signal, cancel: options.cancel ?? options.signal,
     ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),
   });
   await stage("analysis");
+  if (options.signal.aborted && !options.cancel?.aborted) return run;
   if (run.status !== "open") return run;
   if (!run.stages.some((s) => s.kind === "analysis" && s.status === "completed")) {
     markFailed(run, "digital-life: all analysts failed; no synthesis was attempted");
@@ -204,6 +209,7 @@ export async function runExpertReview(options: RunReviewOptions): Promise<TeamRu
   }
   for (const kind of ["review", "synthesis"] as const) {
     const [result] = await stage(kind);
+    if (options.signal.aborted && !options.cancel?.aborted) return run;
     if (run.status !== "open") return run;
     // A failed review would make planStage("synthesis") throw; the shortcut has no retry.
     if (result?.status !== "completed") break;

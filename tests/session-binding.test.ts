@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Session } from "@deepseek-ai/dsh-session";
 import { appendOpeningAssistantMessage } from "../src/host/index.js";
-import { loadBinding, saveBinding } from "../src/host/session-binding.js";
+import { loadBinding, preserveLegacyBinding, saveBinding } from "../src/host/session-binding.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -83,5 +83,15 @@ describe("digital-life session binding", () => {
     expect(await loadBinding(sessionId, root)).toEqual({ recordId: "mentor", prompt: "Old" });
     await writeFile(join(root, "digital-life", "sessions", `${sessionId}.json`), JSON.stringify({ recordId: "mentor", pre: "x" }));
     await expect(loadBinding(sessionId, root)).rejects.toThrow(/invalid binding/);
+  });
+
+  it("preserves the saved identity when upgrading a legacy binding", async () => {
+    const root = await mkdtemp(join(tmpdir(), "digital-life-binding-"));
+    roots.push(root);
+    const legacy = { recordId: "mentor", prompt: "Original identity and rules" };
+    const upgraded = preserveLegacyBinding(legacy);
+    expect(upgraded).toEqual({ recordId: "mentor", pre: legacy.prompt, persona: "", suf: "" });
+    await saveBinding("session-legacy", upgraded, root);
+    expect(await loadBinding("session-legacy", root)).toEqual(upgraded);
   });
 });

@@ -22,6 +22,11 @@ export interface LegacyDigitalLifeBinding {
   prompt: string;
 }
 
+/** Keep an old session's saved prompt intact when moving it to the split format. */
+export function preserveLegacyBinding(binding: LegacyDigitalLifeBinding): DigitalLifeBinding {
+  return { recordId: binding.recordId, pre: binding.prompt, persona: "", suf: "" };
+}
+
 function bindingPath(sessionId: string, stateDir?: string): string {
   if (!/^[a-z0-9][a-z0-9-]{0,127}$/.test(sessionId))
     throw new Error(`digital-life: invalid session id "${sessionId}"`);

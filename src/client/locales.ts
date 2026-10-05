@@ -4,6 +4,7 @@ import type { DigitalLifeRecord } from "../types.js";
 /** UI copy for the digital-life settings and session controls. */
 export const zh = {
   nav: "数字生命",
+  expertAiPanel: "专家 AI",
   title: "数字生命",
   intro: "创建可由主代理通过工具咨询的人格代理，也可在输入框中使用 @id。",
   add: "新增数字生命",
@@ -163,6 +164,7 @@ export const zh = {
   saveAsTeam: "另存为专家团",
   lineupBlocked: "部分成员不可用，请先启用或编辑团队。",
   openReport: "查看报告",
+  enterSession: "进入会话",
   reportTitle: "评审报告",
   stageBrief: "简报",
   stageAnalysis: "分析",
@@ -203,6 +205,7 @@ export type DigitalLifeKey = keyof typeof zh;
 
 export const en = {
   nav: "Digital lives",
+  expertAiPanel: "Expert AI",
   title: "Digital lives",
   intro: "Create persona agents that the primary agent can consult through tools, or mention with @id in the composer.",
   add: "Add digital life",
@@ -362,6 +365,7 @@ export const en = {
   saveAsTeam: "Save as team",
   lineupBlocked: "Some members are unavailable. Enable them or edit the team first.",
   openReport: "View report",
+  enterSession: "Open session",
   reportTitle: "Review report",
   stageBrief: "Brief",
   stageAnalysis: "Analysis",

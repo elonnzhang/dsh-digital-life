@@ -10,7 +10,7 @@ import type {
   TeamStageKind,
 } from "../expert-types.js";
 
-export const STAGE_ORDER: readonly TeamStageKind[] = ["brief", "analysis", "cross-critique", "review", "synthesis"];
+const STAGE_ORDER: readonly TeamStageKind[] = ["brief", "analysis", "cross-critique", "review", "synthesis"];
 const DISAGREEMENT_ORDER: readonly DisagreementType[] = ["fact", "assumption", "applicability", "value"];
 
 /** One member's latest attempt at a stage kind. */
@@ -95,5 +95,9 @@ export function stageLines(stage: TeamStage): string[] {
     ...bullets(review.assumptions),
     ...bullets(review.nextActions),
   ];
-  return stage.kind === "synthesis" ? lines : [...lines, ...bullets((review as ReviewReport).disagreements)];
+  if (stage.kind !== "synthesis") return [...lines, ...bullets((review as ReviewReport).disagreements)];
+  const synthesis = review as SynthesisReport;
+  return [...lines, ...bullets(synthesis.options.map((option) => `${option.name}: ${option.tradeoffs}`)),
+    ...bullets(synthesis.validationPlan.map((item) => `${item.task} -> decides ${item.decides}; stop when ${item.stopCondition}`)),
+    ...bullets(synthesis.missingStages)];
 }

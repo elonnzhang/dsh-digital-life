@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, open, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { defineTool, type ToolExecution } from "@deepseek-ai/dsh-tools";
 import type { DigitalLifeRecord, ResolvedDigitalLifeSettings } from "../types.js";
@@ -38,6 +40,38 @@ function describeNext(next: readonly NextStage[]): string {
   return next.length === 0 ? "nextStages: none" : `nextStages: ${next.map((s) => `${s.stage}${s.memberIds === undefined ? "" : `(${s.memberIds.join(",")})`} — ${s.reason}`).join("; ")}`;
 }
 
+/** Serialize run admission across Host instances sharing one state directory. */
+async function withCapacityLock<T>(stateDir: string | undefined, work: () => Promise<T>): Promise<T> {
+  const directory = join(digitalLifeHome(process.env, stateDir), ".expert-reviews");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const path = join(directory, ".capacity.lock");
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  for (let attempt = 0; attempt < 300; attempt++) {
+    try {
+      handle = await open(path, "wx", 0o600);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        // A crashed Host must not permanently prevent new runs.
+        if (Date.now() - (await stat(path)).mtimeMs > 30_000) await rm(path, { force: true });
+      } catch (statError) {
+        if ((statError as NodeJS.ErrnoException).code !== "ENOENT") throw statError;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  if (handle === undefined) throw new Error("digital-life: timed out waiting for the team-run capacity lock");
+  const heartbeat = setInterval(() => { void handle?.utimes(new Date(), new Date()).catch(() => {}); }, 5_000);
+  try {
+    return await work();
+  } finally {
+    clearInterval(heartbeat);
+    await handle.close();
+    await rm(path, { force: true });
+  }
+}
+
 /** Surface state-machine refusals with the stages the main agent can run instead. */
 function explain(error: unknown): never {
   if (error instanceof TeamRunError) throw new Error(`${error.message}. ${describeNext(error.nextStages)}`);
@@ -68,7 +102,7 @@ export function createExpertService(options: Options) {
     return record;
   };
   // runId → controller for explicit cancellation of the stage currently executing.
-  const active = new Map<string, { controller: AbortController; home: string }>();
+  const active = new Map<string, { controller: AbortController; stop: AbortController; home: string }>();
   // Session ids of live stage subagents. Agent Teams installs its tools into a child's own
   // scope before the subagent descriptor exists, so `toolFilter` cannot hide them; a Host
   // guard denies them at execution instead.
@@ -91,7 +125,8 @@ export function createExpertService(options: Options) {
   const owned = async (runId: string, exec: ToolExecution): Promise<TeamRun> => {
     const stateDir = options.stateDir();
     const run = await refresh(await readTeamRun(runId, stateDir), stateDir) as TeamRun;
-    if (exec.agent?.id !== run.sessionId) throw new Error("digital-life: only the session that started this team run can change it");
+    if (exec.agent?.id !== run.sessionId)
+      throw new Error(`digital-life: only the session that started this team run can change it. ${describeNext(nextStages(run))}`);
     return run;
   };
   const ensureCapacity = async (stateDir?: string): Promise<void> => {
@@ -143,11 +178,12 @@ export function createExpertService(options: Options) {
     };
   };
   /** Run `work` while holding the run's lock and exposing an explicit-cancel controller. */
-  const holding = async <T,>(runId: string, work: (cancel: AbortSignal) => Promise<T>): Promise<T> => {
+  const holding = async <T,>(runId: string, work: (cancel: AbortSignal, stop: AbortSignal) => Promise<T>): Promise<T> => {
     if (active.has(runId)) throw new Error("digital-life: another stage of this run is still running");
     const controller = new AbortController();
-    active.set(runId, { controller, home: digitalLifeHome(process.env, options.stateDir()) });
-    try { return await work(controller.signal); } finally { active.delete(runId); }
+    const stop = new AbortController();
+    active.set(runId, { controller, stop, home: digitalLifeHome(process.env, options.stateDir()) });
+    try { return await work(controller.signal, stop.signal); } finally { active.delete(runId); }
   };
   // Plain object literals so the `json` output schema (JsonValue) accepts them.
   const nextJson = (run: TeamRun) => nextStages(run).map((s) => ({ stage: s.stage, reason: s.reason, ...(s.memberIds === undefined ? {} : { memberIds: s.memberIds }) }));
@@ -160,15 +196,20 @@ export function createExpertService(options: Options) {
     validateReviewRequest(request, settings.records);
     const invoke = invokerFor(host, parent);
     const stateDir = options.stateDir();
-    await ensureCapacity(stateDir);
     const controller = new AbortController();
+    const stop = new AbortController();
     let runId: string | undefined;
     try {
-      return await runExpertReview({
-        request, records: settings.records, teams: settings.teams, sessionId: parent.id, invoke,
-        signal: AbortSignal.any([exec.signal, controller.signal]),
-        ...(stateDir === undefined ? {} : { stateDir }),
-        onStart(id) { runId = id; active.set(id, { controller, home: digitalLifeHome(process.env, stateDir) }); },
+      return await withCapacityLock(stateDir, async () => {
+        await ensureCapacity(stateDir);
+        return runExpertReview({
+          request, records: settings.records, teams: settings.teams, sessionId: parent.id, invoke,
+          signal: AbortSignal.any([exec.signal, stop.signal]),
+          cancel: controller.signal,
+          ...(stateDir === undefined ? {} : { stateDir }),
+          persistStart: (run) => saveReviewRun(run, stateDir),
+          onStart(id) { runId = id; active.set(id, { controller, stop, home: digitalLifeHome(process.env, stateDir) }); },
+        });
       });
     } finally {
       if (runId !== undefined) active.delete(runId);
@@ -177,7 +218,8 @@ export function createExpertService(options: Options) {
 
   return {
     dispose() {
-      for (const job of active.values()) job.controller.abort(new Error("Expert service stopped"));
+      // Host shutdown is a tool-call abort: leave runs recoverable instead of terminally cancelled.
+      for (const job of active.values()) job.stop.abort(new Error("Expert service stopped"));
     },
     registerTools(target: Pick<Agent, "ctx">): () => void {
       const runOutput = {
@@ -261,11 +303,19 @@ export function createExpertService(options: Options) {
             const settings = options.current();
             const stateDir = options.stateDir();
             invokerFor(target.ctx, parent);
-            await ensureCapacity(stateDir);
-            const resolved = await resolveTeamMembers(lineupOf(args), args.brief, settings.records, settings.teams, stateDir);
-            const run = createTeamRun({ id: `review-${randomUUID()}`, sessionId: parent.id, brief: args.brief, ...resolved });
-            await saveReviewRun(run, stateDir);
-            return { ...result(run), markdown: `${renderTeamRunMarkdown(run)}\n成员：${run.members.map((m) => `${m.id}（${m.roles.join("/")}：${m.responsibility}）`).join("，")}` };
+            return await withCapacityLock(stateDir, async () => {
+              await ensureCapacity(stateDir);
+              const lineup = lineupOf(args);
+              if (!("teamId" in lineup) && lineup.responsibilities !== undefined) {
+                const members = new Set([...lineup.analystIds, lineup.reviewerId, lineup.coordinatorId ?? lineup.reviewerId]);
+                if (Object.keys(lineup.responsibilities).some((id) => !members.has(id)))
+                  throw new Error("digital-life: responsibilities must name members of this lineup");
+              }
+              const resolved = await resolveTeamMembers(lineup, args.brief, settings.records, settings.teams, stateDir);
+              const run = createTeamRun({ id: `review-${randomUUID()}`, sessionId: parent.id, brief: args.brief, ...resolved });
+              await saveReviewRun(run, stateDir);
+              return { ...result(run), markdown: `${renderTeamRunMarkdown(run)}\n成员：${run.members.map((m) => `${m.id}（${m.roles.join("/")}：${m.responsibility}）`).join("，")}` };
+            });
           },
         })),
         target.ctx.tools.register(defineTool({
@@ -281,7 +331,7 @@ export function createExpertService(options: Options) {
           },
           async execute(args, exec) {
             const run = await owned(args.runId, exec);
-            if (active.has(run.id)) throw new Error("digital-life: another stage of this run is still running");
+            if (active.has(run.id)) throw new Error(`digital-life: another stage of this run is still running. ${describeNext([])}`);
             try { amendBrief(run, args.text); } catch (error) { explain(error); }
             run.updatedAt = new Date().toISOString();
             await saveReviewRun(run, options.stateDir());
@@ -301,8 +351,8 @@ export function createExpertService(options: Options) {
             const run = await owned(args.runId, exec);
             const invoke = invokerFor(target.ctx, exec.agent!);
             const stateDir = options.stateDir();
-            await holding(run.id, (cancel) => executeTeamStage({
-              run, kind: args.stage as TeamStageKind, invoke, signal: exec.signal, cancel,
+            await holding(run.id, (cancel, stop) => executeTeamStage({
+              run, kind: args.stage as TeamStageKind, invoke, signal: AbortSignal.any([exec.signal, stop]), cancel,
               ...(args.memberIds === undefined ? {} : { memberIds: args.memberIds }),
               ...(stateDir === undefined ? {} : { stateDir }),
             })).catch(explain);
@@ -332,7 +382,7 @@ export function createExpertService(options: Options) {
               job.controller.abort(new Error("Team run cancelled"));
               return { runId: run.id, status: "cancelled", nextStages: [], markdown: "已请求取消；正在执行的阶段会标记为 cancelled。" };
             }
-            if (isTerminal(run.status)) throw new Error(`digital-life: team run ${run.id} is finished (${run.status})`);
+            if (isTerminal(run.status)) throw new Error(`digital-life: team run ${run.id} is finished (${run.status}). ${describeNext([])}`);
             run.status = "cancelled";
             run.updatedAt = new Date().toISOString();
             await saveReviewRun(run, options.stateDir());

@@ -233,6 +233,12 @@ describe("digital-life standalone sessions", () => {
     expect(fixture.bindPayloads).toEqual([{ sessionId: "session-1", teamId: "plan-review" }]);
   });
 
+  it("reopens the session that owns a saved review", () => {
+    const fixture = setup([]);
+    fixture.expertApi.openReviewSession("review-session");
+    expect(fixture.calls).toContain("open");
+  });
+
   it("hosts an ad-hoc review session by its lineup", async () => {
     const reviewer = { ...record, id: "critic" };
     const fixture = setup([{ id: "digital-life-mode" }], { records: [record, reviewer] });

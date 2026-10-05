@@ -48,6 +48,13 @@ describe("team run state machine", () => {
     expect(target.budget.callsUsed).toBe(2);
   });
 
+  it("rejects duplicate stage members before creating calls or spending budget", () => {
+    const target = run();
+    expect(() => planStage(target, "analysis", ["alpha", "alpha"])).toThrow(/unique/);
+    expect(target.stages).toEqual([]);
+    expect(target.budget.callsUsed).toBe(0);
+  });
+
   it("marks partial synthesis, flags stale downstream stages and completes after a retry", () => {
     const target = run();
     execute(target, "analysis", ["beta"]);

@@ -53,7 +53,7 @@ export function ReviewHistory({
   api,
   t,
 }: {
-  api: Pick<ExpertWorkbenchApi, "listReviews" | "readReview" | "cancelReview">;
+  api: Pick<ExpertWorkbenchApi, "listReviews" | "readReview" | "cancelReview" | "openReviewSession">;
   t: TranslateNS<"digital-life">;
 }): ReactNode {
   const [reviews, setReviews] = useState<ReviewSummary[]>([]);
@@ -176,6 +176,16 @@ export function ReviewHistory({
                   {t("cancelReview")}
                 </Button>
               ) : null}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  api.openReviewSession(run.sessionId);
+                }}
+              >
+                {t("enterSession")}
+              </Button>
               <Button
                 size="sm"
                 variant="outline"

@@ -114,6 +114,8 @@ export interface ReviewRun {
 }
 
 export type ReviewSummary = Pick<ReviewRun, "id" | "createdAt" | "updatedAt"> & {
+  /** Session that owns the review, so the UI can reopen its conversation. */
+  sessionId: string;
   status: ReviewStatus | TeamRunStatus;
   question: string;
   schemaVersion: 1 | 2;

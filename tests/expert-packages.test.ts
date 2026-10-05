@@ -131,6 +131,7 @@ describe("versioned expert packages", () => {
     const manifest = await importMimeograph(packageBinding, await root(), packageFetcher());
     const record = recordForPackage(manifest, "main");
     expect(record.expertPackage).toEqual({ ...packageBinding, ref: "main" });
+    expect(recordForPackage(manifest).expertPackage?.ref).toBe(manifest.revision);
     expect(record.agent).toBe(packageAgentBinding(packageBinding));
     expect(() => validateSettings({ records: [record] })).not.toThrow();
     expect(() => recordForPackage(manifest, "../main")).toThrow(/branch or tag/);

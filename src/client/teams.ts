@@ -17,14 +17,14 @@ export interface TeamIssue {
  * List the members that block launching a review with this team.
  * @param team Saved lineup.
  * @param records Current digital-life records.
- * @returns Missing or disabled members, analysts first.
+ * @returns Missing or disabled members, analysts first, then reviewer and coordinator.
  */
 export function teamIssues(
-  team: Pick<ExpertTeam, "analystIds" | "reviewerId">,
+  team: Pick<ExpertTeam, "analystIds" | "reviewerId" | "coordinatorId">,
   records: readonly Pick<DigitalLifeRecord, "id" | "enabled">[],
 ): TeamIssue[] {
   const byId = new Map(records.map((record) => [record.id, record]));
-  return [...team.analystIds, team.reviewerId].flatMap((id): TeamIssue[] => {
+  return [...new Set([...team.analystIds, team.reviewerId, ...(team.coordinatorId === undefined ? [] : [team.coordinatorId])])].flatMap((id): TeamIssue[] => {
     const record = byId.get(id);
     if (record === undefined) return [{ id, kind: "missing" }];
     return record.enabled ? [] : [{ id, kind: "disabled" }];
@@ -124,10 +124,10 @@ export function requestFromTeam(
  * Teams that reference a record, used to warn before deleting it.
  * @param recordId Record about to be removed.
  * @param teams Saved teams.
- * @returns Teams naming the record as analyst or reviewer.
+ * @returns Teams naming the record as analyst, reviewer, or coordinator.
  */
 export function teamsUsing(recordId: string, teams: readonly ExpertTeam[]): ExpertTeam[] {
-  return teams.filter((team) => team.reviewerId === recordId || team.analystIds.includes(recordId));
+  return teams.filter((team) => team.reviewerId === recordId || team.analystIds.includes(recordId) || team.coordinatorId === recordId);
 }
 
 /**

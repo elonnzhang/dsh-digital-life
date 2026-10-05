@@ -8,6 +8,8 @@ import type { ReviewReport, ReviewRun, SynthesisReport, TeamRun } from "../src/e
 import { listReviewRuns, parseReviewReport, readAnyReviewRun, readReviewRun, renderReviewMarkdown, REVIEW_OUTPUT_SCHEMA, saveReviewRun } from "../src/host/review.js";
 import { runExpertReview, type RunReviewOptions, type TeamInvocation } from "../src/host/team-exec.js";
 import { importMimeograph, recordForPackage } from "../src/host/expert-packages.js";
+import { createTeamRun } from "../src/host/team-run.js";
+import { runExpertReview as publicRunExpertReview, runExpertTeamReview as publicRunExpertTeamReview, readReviewRun as publicReadReviewRun } from "../src/index.js";
 import { packageBinding, packageFetcher } from "./expert-fixture.js";
 
 const roots: string[] = [];
@@ -51,7 +53,7 @@ describe("fixed expert review shortcut (v2)", () => {
   it("runs analysis, review and synthesis as a v2 run within 5 calls", async () => {
     const options = await setup();
     const invoke = vi.fn(async (input: TeamInvocation) => answer(input));
-    const run = await runExpertReview({ ...options, invoke });
+    const run = await publicRunExpertTeamReview({ ...options, invoke });
     expect(invoke.mock.calls.map(([input]) => input.kind)).toEqual(["analysis", "analysis", "review", "synthesis"]);
     expect(run).toMatchObject({ schemaVersion: 2, status: "completed", budget: { maxCalls: 5, callsUsed: 4 } });
     expect(await readAnyReviewRun(run.id, options.stateDir)).toEqual(run);
@@ -146,6 +148,34 @@ describe("saved review records", () => {
     expect(() => parseReviewReport(report("Test", []), new Set())).toThrow(/require supplied evidence/);
     expect(() => parseReviewReport({ ...report(), extra: "unsupported" }, new Set(["input:brief@1"]))).toThrow(/schema/);
     expect(() => parseReviewReport(null, new Set())).toThrow(/object/);
+  });
+
+  it("keeps an older open run visible after 30 newer completed reviews", async () => {
+    const { stateDir } = await setup();
+    const open = createTeamRun({
+      id: "review-00000000-0000-0000-0000-000000000001", sessionId: "old", brief: "Unfinished",
+      members: [], evidence: [], now: "2025-01-01T00:00:00.000Z",
+    });
+    await saveReviewRun(open, stateDir);
+    await Promise.all(Array.from({ length: 30 }, (_, index) => saveReviewRun({
+      ...legacy,
+      id: `review-${(index + 2).toString(16).padStart(36, "0")}`,
+      createdAt: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+    }, stateDir)));
+    const summaries = await listReviewRuns(stateDir);
+    expect(summaries).toHaveLength(31);
+    expect(summaries.some((summary) => summary.id === open.id && summary.status === "open")).toBe(true);
+  });
+
+  it("keeps the exported fixed-review function compatible with its v1 caller", async () => {
+    const options = await setup();
+    const run = await publicRunExpertReview({
+      request: options.request, records: options.records, sessionId: options.sessionId,
+      signal: options.signal, stateDir: options.stateDir,
+      invoke: async () => ({ ...report(), findings: [{ claim: "Brief", kind: "observation", evidenceIds: ["input:brief"] }] }),
+    });
+    expect(run.schemaVersion).toBe(1);
+    expect(await publicReadReviewRun(run.id, options.stateDir)).toEqual(run);
   });
 
   it("rejects traversal and malformed v2 records", async () => {

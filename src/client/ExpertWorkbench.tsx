@@ -14,6 +14,7 @@ export interface ExpertWorkbenchApi {
   listReviews: () => Promise<ReviewSummary[]>;
   readReview: (id: string) => Promise<{ run: AnyReviewRun; markdown: string }>;
   cancelReview: (id: string) => Promise<void>;
+  openReviewSession: (sessionId: string) => void;
 }
 
 /** Ask the main agent to orchestrate the team with start_team_run arguments. */
