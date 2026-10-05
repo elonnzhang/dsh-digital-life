@@ -373,6 +373,82 @@
   line-height: 18px;
 }
 
+/* Team run view: synthesis first, then one column per stage kind. */
+.teamRun {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.teamRunHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.disagreementGroup ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.stageGraph {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stageColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stageNode {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.stageNode:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.stageNode[aria-expanded="true"] {
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.stageNode small {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+}
+
+/* Keep stage errors red; `.stageNode small` would otherwise win on specificity. */
+.stageNode .error {
+  color: var(--dsw-alias-label-error);
+}
+
 @media (max-width: 560px) {
   .form,
   .checks {
@@ -381,5 +457,9 @@
 
   .card {
     flex-direction: column;
+  }
+
+  .stageGraph {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
