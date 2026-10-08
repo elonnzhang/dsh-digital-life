@@ -236,13 +236,14 @@ export function apply(ctx: ClientContext): void {
   );
   installAgentPresetSelector(ctx, records, t, openDigitalLifeSession);
 
-  // Keep the Expert AI navigation entry available while its full surface is
-  // being implemented; the keyed panel is intentionally empty for now.
+  // Expert AI is the full-width workbench surface behind the sidebar entry.
   ctx.slots.inject("main", () =>
     ctx.slots.register(
       {
         name: "main",
         key: EXPERT_AI_PANEL_ID,
+        locale: NS,
+        inject: () => ({ records, teams, expertApi, t }),
       },
       ExpertAIPanel,
     ),
